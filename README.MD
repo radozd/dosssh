@@ -3,6 +3,8 @@
 DOSSSH is an SSH terminal for MS-DOS. It runs in 16-bit real mode on a 386 or
 newer PC, using mTCP and a packet driver. No DOS extender is needed.
 
+![DOSSSH connected to some OpenWrt router](img/dosssh.png)
+
 ## Background
 
 An old DOS PC can get on Wi-Fi through a small OpenWrt router: Ethernet to the
