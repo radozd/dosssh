@@ -25,7 +25,7 @@
 #include "SSHPKT.H"
 
 #define SSHSCAN_ID_SIZE 256
-#define DOSSSH_VERSION "0.8"
+#define DOSSSH_VERSION "1.0"
 #define SSHSCAN_CLIENT_ID "SSH-2.0-DOSSSH_" DOSSSH_VERSION "\r\n"
 
 /* Authenticated connection state.  Directional ciphers rotate on NEWKEYS. */
