@@ -29,6 +29,27 @@
 #include "SSHSHA.H"
 #include "SSHCRYPT.H"
 
+// Signed 32 * signed 32 -> signed 64, exact result.
+// Watcom 16-bit: a in DX:AX, b in CX:BX.
+// Auxiliary value [ax bx cx dx] means high to low 16-bit words.
+__int64 Mul32(long a, long b);
+#pragma aux Mul32 = \
+    ".386"               \
+    "shl edx, 16"        \
+    "mov dx, ax"         \
+    "shl ecx, 16"        \
+    "mov cx, bx"         \
+    "mov eax, edx"       \
+    "imul ecx"           \
+    "mov ebx, edx"       \
+    "mov ecx, eax"       \
+    "shr ecx, 16"        \
+    "shr edx, 16"        \
+    "xchg ax, dx"        \
+    parm [ax dx] [bx cx]  \
+    value [ax bx cx dx]   \
+    modify exact [ax bx cx dx] nomemory;
+
 static unsigned __int64 Load3(const unsigned char *in)
 {
 	unsigned long result;
@@ -275,16 +296,16 @@ void FieldElement::ToBytes(unsigned char *s) const
 
 void FieldElement::Mul(const FieldElement *f, const FieldElement *g)
 {
-	__int64 f0 = f->v[0];
-	__int64 f1 = f->v[1];
-	__int64 f2 = f->v[2];
-	__int64 f3 = f->v[3];
-	__int64 f4 = f->v[4];
-	__int64 f5 = f->v[5];
-	__int64 f6 = f->v[6];
-	__int64 f7 = f->v[7];
-	__int64 f8 = f->v[8];
-	__int64 f9 = f->v[9];
+	long f0 = f->v[0];
+	long f1 = f->v[1];
+	long f2 = f->v[2];
+	long f3 = f->v[3];
+	long f4 = f->v[4];
+	long f5 = f->v[5];
+	long f6 = f->v[6];
+	long f7 = f->v[7];
+	long f8 = f->v[8];
+	long f9 = f->v[9];
 	long g0 = g->v[0];
 	long g1 = g->v[1];
 	long g2 = g->v[2];
@@ -306,22 +327,22 @@ void FieldElement::Mul(const FieldElement *f, const FieldElement *g)
 	long g8_19 = 19 * g8;
 	long g9_19 = 19 * g9;
 
-	__int64 f1_2 = 2 * f1;
-	__int64 f3_2 = 2 * f3;
-	__int64 f5_2 = 2 * f5;
-	__int64 f7_2 = 2 * f7;
-	__int64 f9_2 = 2 * f9;
+	long f1_2 = 2 * f1;
+	long f3_2 = 2 * f3;
+	long f5_2 = 2 * f5;
+	long f7_2 = 2 * f7;
+	long f9_2 = 2 * f9;
 
-	__int64 h0 = f0*g0 + f1_2*g9_19 + f2*g8_19 + f3_2*g7_19 + f4*g6_19 + f5_2*g5_19 + f6*g4_19 + f7_2*g3_19 + f8*g2_19 + f9_2*g1_19;
-	__int64 h1 = f0*g1 + f1*g0 + f2*g9_19 + f3*g8_19 + f4*g7_19 + f5*g6_19 + f6*g5_19 + f7*g4_19 + f8*g3_19 + f9*g2_19;
-	__int64 h2 = f0*g2 + f1_2*g1 + f2*g0 + f3_2*g9_19 + f4*g8_19 + f5_2*g7_19 + f6*g6_19 + f7_2*g5_19 + f8*g4_19 + f9_2*g3_19;
-	__int64 h3 = f0*g3 + f1*g2 + f2*g1 + f3*g0 + f4*g9_19 + f5*g8_19 + f6*g7_19 + f7*g6_19 + f8*g5_19 + f9*g4_19;
-	__int64 h4 = f0*g4 + f1_2*g3 + f2*g2 + f3_2*g1 + f4*g0 + f5_2*g9_19 + f6*g8_19 + f7_2*g7_19 + f8*g6_19 + f9_2*g5_19;
-	__int64 h5 = f0*g5 + f1*g4 + f2*g3 + f3*g2 + f4*g1 + f5*g0 + f6*g9_19 + f7*g8_19 + f8*g7_19 + f9*g6_19;
-	__int64 h6 = f0*g6 + f1_2*g5 + f2*g4 + f3_2*g3 + f4*g2 + f5_2*g1 + f6*g0 + f7_2*g9_19 + f8*g8_19 + f9_2*g7_19;
-	__int64 h7 = f0*g7 + f1*g6 + f2*g5 + f3*g4 + f4*g3 + f5*g2 + f6*g1 + f7*g0 + f8*g9_19 + f9*g8_19;
-	__int64 h8 = f0*g8 + f1_2*g7 + f2*g6 + f3_2*g5 + f4*g4 + f5_2*g3 + f6*g2 + f7_2*g1 + f8*g0 + f9_2*g9_19;
-	__int64 h9 = f0*g9 + f1*g8 + f2*g7 + f3*g6 + f4*g5 + f5*g4 + f6*g3 + f7*g2 + f8*g1 + f9*g0;
+	__int64 h0 = Mul32(f0, g0) + Mul32(f1_2, g9_19) + Mul32(f2, g8_19) + Mul32(f3_2, g7_19) + Mul32(f4, g6_19) + Mul32(f5_2, g5_19) + Mul32(f6, g4_19) + Mul32(f7_2, g3_19) + Mul32(f8, g2_19) + Mul32(f9_2, g1_19);
+	__int64 h1 = Mul32(f0, g1) + Mul32(f1, g0) + Mul32(f2, g9_19) + Mul32(f3, g8_19) + Mul32(f4, g7_19) + Mul32(f5, g6_19) + Mul32(f6, g5_19) + Mul32(f7, g4_19) + Mul32(f8, g3_19) + Mul32(f9, g2_19);
+	__int64 h2 = Mul32(f0, g2) + Mul32(f1_2, g1) + Mul32(f2, g0) + Mul32(f3_2, g9_19) + Mul32(f4, g8_19) + Mul32(f5_2, g7_19) + Mul32(f6, g6_19) + Mul32(f7_2, g5_19) + Mul32(f8, g4_19) + Mul32(f9_2, g3_19);
+	__int64 h3 = Mul32(f0, g3) + Mul32(f1, g2) + Mul32(f2, g1) + Mul32(f3, g0) + Mul32(f4, g9_19) + Mul32(f5, g8_19) + Mul32(f6, g7_19) + Mul32(f7, g6_19) + Mul32(f8, g5_19) + Mul32(f9, g4_19);
+	__int64 h4 = Mul32(f0, g4) + Mul32(f1_2, g3) + Mul32(f2, g2) + Mul32(f3_2, g1) + Mul32(f4, g0) + Mul32(f5_2, g9_19) + Mul32(f6, g8_19) + Mul32(f7_2, g7_19) + Mul32(f8, g6_19) + Mul32(f9_2, g5_19);
+	__int64 h5 = Mul32(f0, g5) + Mul32(f1, g4) + Mul32(f2, g3) + Mul32(f3, g2) + Mul32(f4, g1) + Mul32(f5, g0) + Mul32(f6, g9_19) + Mul32(f7, g8_19) + Mul32(f8, g7_19) + Mul32(f9, g6_19);
+	__int64 h6 = Mul32(f0, g6) + Mul32(f1_2, g5) + Mul32(f2, g4) + Mul32(f3_2, g3) + Mul32(f4, g2) + Mul32(f5_2, g1) + Mul32(f6, g0) + Mul32(f7_2, g9_19) + Mul32(f8, g8_19) + Mul32(f9_2, g7_19);
+	__int64 h7 = Mul32(f0, g7) + Mul32(f1, g6) + Mul32(f2, g5) + Mul32(f3, g4) + Mul32(f4, g3) + Mul32(f5, g2) + Mul32(f6, g1) + Mul32(f7, g0) + Mul32(f8, g9_19) + Mul32(f9, g8_19);
+	__int64 h8 = Mul32(f0, g8) + Mul32(f1_2, g7) + Mul32(f2, g6) + Mul32(f3_2, g5) + Mul32(f4, g4) + Mul32(f5_2, g3) + Mul32(f6, g2) + Mul32(f7_2, g1) + Mul32(f8, g0) + Mul32(f9_2, g9_19);
+	__int64 h9 = Mul32(f0, g9) + Mul32(f1, g8) + Mul32(f2, g7) + Mul32(f3, g6) + Mul32(f4, g5) + Mul32(f5, g4) + Mul32(f6, g3) + Mul32(f7, g2) + Mul32(f8, g1) + Mul32(f9, g0);
 
 	__int64 carry0 = (h0 + (1L << 25)) >> 26;
 	h1 += carry0;
@@ -374,41 +395,41 @@ void FieldElement::Mul(const FieldElement *f, const FieldElement *g)
 
 void FieldElement::Square(const FieldElement *f)
 {
-	__int64 f0 = f->v[0];
-	__int64 f1 = f->v[1];
-	__int64 f2 = f->v[2];
-	__int64 f3 = f->v[3];
-	__int64 f4 = f->v[4];
-	__int64 f5 = f->v[5];
-	__int64 f6 = f->v[6];
-	__int64 f7 = f->v[7];
-	__int64 f8 = f->v[8];
-	__int64 f9 = f->v[9];
+	long f0 = f->v[0];
+	long f1 = f->v[1];
+	long f2 = f->v[2];
+	long f3 = f->v[3];
+	long f4 = f->v[4];
+	long f5 = f->v[5];
+	long f6 = f->v[6];
+	long f7 = f->v[7];
+	long f8 = f->v[8];
+	long f9 = f->v[9];
 
-	__int64 f0_2 = 2 * f0;
-	__int64 f1_2 = 2 * f1;
-	__int64 f2_2 = 2 * f2;
-	__int64 f3_2 = 2 * f3;
-	__int64 f4_2 = 2 * f4;
-	__int64 f5_2 = 2 * f5;
-	__int64 f6_2 = 2 * f6;
-	__int64 f7_2 = 2 * f7;
+	long f0_2 = 2 * f0;
+	long f1_2 = 2 * f1;
+	long f2_2 = 2 * f2;
+	long f3_2 = 2 * f3;
+	long f4_2 = 2 * f4;
+	long f5_2 = 2 * f5;
+	long f6_2 = 2 * f6;
+	long f7_2 = 2 * f7;
 	long f5_38 = 38 * f5;
 	long f6_19 = 19 * f6;
 	long f7_38 = 38 * f7;
 	long f8_19 = 19 * f8;
 	long f9_38 = 38 * f9;
 
-	__int64 h0 = f0*f0 + f1_2*f9_38 + f2_2*f8_19 + f3_2*f7_38 + f4_2*f6_19 + f5*f5_38;
-	__int64 h1 = f0_2*f1 + f2*f9_38 + f3_2*f8_19 + f4*f7_38 + f5_2*f6_19;
-	__int64 h2 = f0_2*f2 + f1_2*f1 + f3_2*f9_38 + f4_2*f8_19 + f5_2*f7_38 + f6*f6_19;
-	__int64 h3 = f0_2*f3 + f1_2*f2 + f4*f9_38 + f5_2*f8_19 + f6*f7_38;
-	__int64 h4 = f0_2*f4 + f1_2*f3_2 + f2*f2 + f5_2*f9_38 + f6_2*f8_19 + f7*f7_38;
-	__int64 h5 = f0_2*f5 + f1_2*f4 + f2_2*f3 + f6*f9_38 + f7_2*f8_19;
-	__int64 h6 = f0_2*f6 + f1_2*f5_2 + f2_2*f4 + f3_2*f3 + f7_2*f9_38 + f8*f8_19;
-	__int64 h7 = f0_2*f7 + f1_2*f6 + f2_2*f5 + f3_2*f4 + f8*f9_38;
-	__int64 h8 = f0_2*f8 + f1_2*f7_2 + f2_2*f6 + f3_2*f5_2 + f4*f4 + f9*f9_38;
-	__int64 h9 = f0_2*f9 + f1_2*f8 + f2_2*f7 + f3_2*f6 + f4_2*f5;
+	__int64 h0 = Mul32(f0, f0) + Mul32(f1_2, f9_38) + Mul32(f2_2, f8_19) + Mul32(f3_2, f7_38) + Mul32(f4_2, f6_19) + Mul32(f5, f5_38);
+	__int64 h1 = Mul32(f0_2, f1) + Mul32(f2, f9_38) + Mul32(f3_2, f8_19) + Mul32(f4, f7_38) + Mul32(f5_2, f6_19);
+	__int64 h2 = Mul32(f0_2, f2) + Mul32(f1_2, f1) + Mul32(f3_2, f9_38) + Mul32(f4_2, f8_19) + Mul32(f5_2, f7_38) + Mul32(f6, f6_19);
+	__int64 h3 = Mul32(f0_2, f3) + Mul32(f1_2, f2) + Mul32(f4, f9_38) + Mul32(f5_2, f8_19) + Mul32(f6, f7_38);
+	__int64 h4 = Mul32(f0_2, f4) + Mul32(f1_2, f3_2) + Mul32(f2, f2) + Mul32(f5_2, f9_38) + Mul32(f6_2, f8_19) + Mul32(f7, f7_38);
+	__int64 h5 = Mul32(f0_2, f5) + Mul32(f1_2, f4) + Mul32(f2_2, f3) + Mul32(f6, f9_38) + Mul32(f7_2, f8_19);
+	__int64 h6 = Mul32(f0_2, f6) + Mul32(f1_2, f5_2) + Mul32(f2_2, f4) + Mul32(f3_2, f3) + Mul32(f7_2, f9_38) + Mul32(f8, f8_19);
+	__int64 h7 = Mul32(f0_2, f7) + Mul32(f1_2, f6) + Mul32(f2_2, f5) + Mul32(f3_2, f4) + Mul32(f8, f9_38);
+	__int64 h8 = Mul32(f0_2, f8) + Mul32(f1_2, f7_2) + Mul32(f2_2, f6) + Mul32(f3_2, f5_2) + Mul32(f4, f4) + Mul32(f9, f9_38);
+	__int64 h9 = Mul32(f0_2, f9) + Mul32(f1_2, f8) + Mul32(f2_2, f7) + Mul32(f3_2, f6) + Mul32(f4_2, f5);
 
 	__int64 carry0 = (h0 + (1L << 25)) >> 26;
 	h1 += carry0;
@@ -461,41 +482,41 @@ void FieldElement::Square(const FieldElement *f)
 
 void FieldElement::Square2(const FieldElement *f)
 {
-	__int64 f0 = f->v[0];
-	__int64 f1 = f->v[1];
-	__int64 f2 = f->v[2];
-	__int64 f3 = f->v[3];
-	__int64 f4 = f->v[4];
-	__int64 f5 = f->v[5];
-	__int64 f6 = f->v[6];
-	__int64 f7 = f->v[7];
-	__int64 f8 = f->v[8];
-	__int64 f9 = f->v[9];
+	long f0 = f->v[0];
+	long f1 = f->v[1];
+	long f2 = f->v[2];
+	long f3 = f->v[3];
+	long f4 = f->v[4];
+	long f5 = f->v[5];
+	long f6 = f->v[6];
+	long f7 = f->v[7];
+	long f8 = f->v[8];
+	long f9 = f->v[9];
 
-	__int64 f0_2 = 2 * f0;
-	__int64 f1_2 = 2 * f1;
-	__int64 f2_2 = 2 * f2;
-	__int64 f3_2 = 2 * f3;
-	__int64 f4_2 = 2 * f4;
-	__int64 f5_2 = 2 * f5;
-	__int64 f6_2 = 2 * f6;
-	__int64 f7_2 = 2 * f7;
+	long f0_2 = 2 * f0;
+	long f1_2 = 2 * f1;
+	long f2_2 = 2 * f2;
+	long f3_2 = 2 * f3;
+	long f4_2 = 2 * f4;
+	long f5_2 = 2 * f5;
+	long f6_2 = 2 * f6;
+	long f7_2 = 2 * f7;
 	long f5_38 = 38 * f5;
 	long f6_19 = 19 * f6;
 	long f7_38 = 38 * f7;
 	long f8_19 = 19 * f8;
 	long f9_38 = 38 * f9;
 
-	__int64 h0 = f0*f0 + f1_2*f9_38 + f2_2*f8_19 + f3_2*f7_38 + f4_2*f6_19 + f5*f5_38;
-	__int64 h1 = f0_2*f1 + f2*f9_38 + f3_2*f8_19 + f4*f7_38 + f5_2*f6_19;
-	__int64 h2 = f0_2*f2 + f1_2*f1 + f3_2*f9_38 + f4_2*f8_19 + f5_2*f7_38 + f6*f6_19;
-	__int64 h3 = f0_2*f3 + f1_2*f2 + f4*f9_38 + f5_2*f8_19 + f6*f7_38;
-	__int64 h4 = f0_2*f4 + f1_2*f3_2 + f2*f2 + f5_2*f9_38 + f6_2*f8_19 + f7*f7_38;
-	__int64 h5 = f0_2*f5 + f1_2*f4 + f2_2*f3 + f6*f9_38 + f7_2*f8_19;
-	__int64 h6 = f0_2*f6 + f1_2*f5_2 + f2_2*f4 + f3_2*f3 + f7_2*f9_38 + f8*f8_19;
-	__int64 h7 = f0_2*f7 + f1_2*f6 + f2_2*f5 + f3_2*f4 + f8*f9_38;
-	__int64 h8 = f0_2*f8 + f1_2*f7_2 + f2_2*f6 + f3_2*f5_2 + f4*f4 + f9*f9_38;
-	__int64 h9 = f0_2*f9 + f1_2*f8 + f2_2*f7 + f3_2*f6 + f4_2*f5;
+	__int64 h0 = Mul32(f0, f0) + Mul32(f1_2, f9_38) + Mul32(f2_2, f8_19) + Mul32(f3_2, f7_38) + Mul32(f4_2, f6_19) + Mul32(f5, f5_38);
+	__int64 h1 = Mul32(f0_2, f1) + Mul32(f2, f9_38) + Mul32(f3_2, f8_19) + Mul32(f4, f7_38) + Mul32(f5_2, f6_19);
+	__int64 h2 = Mul32(f0_2, f2) + Mul32(f1_2, f1) + Mul32(f3_2, f9_38) + Mul32(f4_2, f8_19) + Mul32(f5_2, f7_38) + Mul32(f6, f6_19);
+	__int64 h3 = Mul32(f0_2, f3) + Mul32(f1_2, f2) + Mul32(f4, f9_38) + Mul32(f5_2, f8_19) + Mul32(f6, f7_38);
+	__int64 h4 = Mul32(f0_2, f4) + Mul32(f1_2, f3_2) + Mul32(f2, f2) + Mul32(f5_2, f9_38) + Mul32(f6_2, f8_19) + Mul32(f7, f7_38);
+	__int64 h5 = Mul32(f0_2, f5) + Mul32(f1_2, f4) + Mul32(f2_2, f3) + Mul32(f6, f9_38) + Mul32(f7_2, f8_19);
+	__int64 h6 = Mul32(f0_2, f6) + Mul32(f1_2, f5_2) + Mul32(f2_2, f4) + Mul32(f3_2, f3) + Mul32(f7_2, f9_38) + Mul32(f8, f8_19);
+	__int64 h7 = Mul32(f0_2, f7) + Mul32(f1_2, f6) + Mul32(f2_2, f5) + Mul32(f3_2, f4) + Mul32(f8, f9_38);
+	__int64 h8 = Mul32(f0_2, f8) + Mul32(f1_2, f7_2) + Mul32(f2_2, f6) + Mul32(f3_2, f5_2) + Mul32(f4, f4) + Mul32(f9, f9_38);
+	__int64 h9 = Mul32(f0_2, f9) + Mul32(f1_2, f8) + Mul32(f2_2, f7) + Mul32(f3_2, f6) + Mul32(f4_2, f5);
 
 	h0 += h0;
 	h1 += h1;

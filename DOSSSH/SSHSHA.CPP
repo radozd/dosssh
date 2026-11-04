@@ -28,10 +28,17 @@ static unsigned long Sha32(unsigned long n)
 	return n & SHA_WORD32;
 }
 
-static unsigned long ShaRor32(unsigned long n, int r)
-{
-	return ((n >> r) | (n << (32 - r))) & SHA_WORD32;
-}
+unsigned long ShaRor32(unsigned long value, int bits);
+#pragma aux ShaRor32 = \
+    ".386"               \
+    "shl edx, 16"        \
+    "mov dx, ax"         \
+    "ror edx, cl"        \
+    "mov eax, edx"       \
+    "shr edx, 16"        \
+    parm [ax dx] [cx] nomemory \
+    value [ax dx]        \
+    modify exact [ax dx] nomemory;
 
 static unsigned __int64 ShaRor64(unsigned __int64 n, int r)
 {
