@@ -1,14 +1,12 @@
 # DOSSSH - Open Watcom 1.9 / MS-DOS / 16-bit large memory model.
-# -3 targets 386+; a 387 coprocessor is not required.
 
 tcp_h_dir = ..\mTCP\src\TCPINC\
 tcp_c_dir = ..\mTCP\src\TCPLIB\
 common_h_dir = ..\mTCP\src\INCLUDE
 
 memory_model = -ml
-compile_options = -3 $(memory_model) -DCFG_H="dosssh.cfg" -oh -ok -os -s -oa -ei -zp2 -zpw -we -ob -ol -oi+ -zmf -wcd=880
+compile_options = -3 $(memory_model) -DCFG_H="dosssh.cfg" -oh -ok -ot -s -oa -ei -zp2 -we -ob -ol+ -oi+ -zmf
 compile_options += -i=$(tcp_h_dir) -i=$(common_h_dir)
-compile_options_c = -3 $(memory_model) -os -s -zp2 -zpw -we -wcd=880
 
 tcpobjs = packet.obj arp.obj eth.obj ip.obj tcp.obj tcpsockm.obj udp.obj utils.obj dns.obj timer.obj ipasm.obj trace.obj
 sshobjs = sshsha.obj sshcrypt.obj sshent.obj sshpkt.obj sshscan.obj vt100.obj
@@ -30,9 +28,6 @@ clean : .symbolic
 
 .cpp.obj :
   *wpp $[* $(compile_options)
-
-.c.obj :
-  *wcc $[* $(compile_options_c)
 
 dosssh.exe : $(tcpobjs) $(objs)
   *wlink system dos option map option eliminate option stack=12288 name $@ file *.obj
