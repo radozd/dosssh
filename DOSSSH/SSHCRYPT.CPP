@@ -1607,10 +1607,18 @@ bool SshCrypt::Equal(const unsigned char *a, const unsigned char *b, size_t size
 	return difference == 0;
 }
 
-static unsigned char SshXtime(unsigned char x)
-{
-	return (unsigned char)((x << 1) ^ ((x >> 7) * 0x1B));
-}
+//static unsigned char SshXtime(unsigned char x)
+//{
+//	return (unsigned char)((x << 1) ^ ((x >> 7) * 0x1B));
+//}
+
+static unsigned char SshXtime(unsigned char x);
+#pragma aux SshXtime = \
+	"add al, al" \
+	"sbb ah, ah" \
+	"and ah, 1Bh" \
+	"xor al, ah" \
+	parm [al] value [al] modify exact [ax] nomemory;
 
 static void SshAesExpand(unsigned char w[176], const unsigned char key[16])
 {
@@ -1748,12 +1756,13 @@ void SSHCRYPT_RNG::Init(const unsigned char seed[64])
 	memset(this, 0, sizeof(*this));
 	memset(value, 1, 32);
 	Update(seed, 64);
+	paddingUsed = sizeof(padding);
 	initialized = true;
 }
 
 bool SSHCRYPT_RNG::Generate(unsigned char *p, size_t len)
 {
-	if( !initialized || (len && p == NULL) )
+	if( !initialized || len == 0 )
 		return false;
 
 	unsigned char next[32];
@@ -1769,6 +1778,20 @@ bool SSHCRYPT_RNG::Generate(unsigned char *p, size_t len)
 	Update(NULL, 0);
 	SshCrypt::Zero(next, sizeof(next));
 	return true;
+}
+
+void SSHCRYPT_RNG::GeneratePadding(unsigned char *p, size_t len)
+{
+	if( len == 0 )
+		return;
+
+		if( paddingUsed + len > sizeof(padding) )
+	{
+		Generate(padding, sizeof(padding));
+		paddingUsed = 0;
+	}
+	memcpy(p, padding + paddingUsed, len);
+	paddingUsed += len;
 }
 
 void SSHCRYPT_RNG::Clear()

@@ -192,8 +192,7 @@ private:
 
 		unsigned char noise[32];
 		bool generated = _rng.Generate(noise, padding);
-		size_t frame_length = generated ? SshPktEncodePlain(payload, length, noise, padding,
-			g_sshFrame, sizeof(g_sshFrame)) : 0;
+		size_t frame_length = generated ? SshPktEncodePlain(payload, length, noise, padding, g_sshFrame, sizeof(g_sshFrame)) : 0;
 		bool success = frame_length != 0 && SshPktWritePlain(g_sshFrame, frame_length, _timeout, &_sequenceOut);
 		SshCrypt::Zero(noise, sizeof(noise));
 		if( success )
@@ -667,8 +666,7 @@ SshAuthenticator::~SshAuthenticator()
 
 bool SshAuthenticator::Login()
 {
-	if( !_rng.initialized || !_username ||
-		!_password || !_timeout || _timeout >= 0x80000000ul )
+	if( !_rng.initialized || !_username || !_password || !_timeout || _timeout >= 0x80000000ul )
 	{
 		SetReason("Invalid SSH authentication parameters");
 		return false;

@@ -57,10 +57,13 @@ struct SSHCRYPT_RNG
 {
 	unsigned char key[32];
 	unsigned char value[32];
+	unsigned char padding[512];
+	size_t paddingUsed;
 	bool initialized;
 
 	void Init(const unsigned char seed[64]);
 	bool Generate(unsigned char *out, size_t length);
+	void GeneratePadding(unsigned char *p, size_t len);
 	void Clear();
 
 private:

@@ -528,8 +528,7 @@ bool SshPktWriteSecure(SSHPKT_Cipher &cipher, SSHCRYPT_RNG &rng, unsigned char *
 	SshPktPut32(frame, packet_len);
 	frame[4] = (unsigned char)pad;
 	memcpy(frame + 5, payload, length);
-	if( !rng.Generate(frame + 5 + length, pad) )
-		return false;
+	rng.GeneratePadding(frame + 5 + length, pad);
 
 	cipher.mac.Calculate(sequence, frame, total, frame + total);
 	cipher.aes.Xor(frame, total);
