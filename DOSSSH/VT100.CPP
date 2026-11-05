@@ -33,7 +33,6 @@ Vt100::Vt100()
 	_normalCells = NULL;
 	_cols = 0;
 	_rows = 0;
-	_codePage = 437;
 	ResetState();
 }
 
@@ -287,11 +286,6 @@ void Vt100::AlternateScreen(bool enabled)
 		_screenState = _normalState;
 		MarkAllDirty();
 	}
-}
-
-void Vt100::SetCodePage(int codepage)
-{
-	_codePage = DosNormalizeCodePage(codepage); //! remove
 }
 
 void Vt100::Put(unsigned char ch)
@@ -622,7 +616,7 @@ void Vt100::Feed(const unsigned char *bytes, size_t size)
 					// Combining marks have no separate DOS cell.
 				}
 				else
-					Put(DosUnicodeOem(_codePage, (unsigned long)unicode));
+					Put(DosUnicodeOem((unsigned long)unicode));
 			}
 			else if( unicode == DosUtf8Decoder::Invalid || unicode == DosUtf8Decoder::Interrupted )
 				Put('?');

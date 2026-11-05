@@ -24,9 +24,9 @@
 #include <stddef.h>
 
 void InitDosCharset();
-int DosNormalizeCodePage(int codepage);
-unsigned char DosUnicodeOem(int codepage, unsigned long ch);
-size_t DosOemToUtf8(int codepage, unsigned char ch, unsigned char out[4]);
+unsigned char DosUnicodeOem(unsigned long ch);
+size_t DosOemToUtf8(unsigned char ch, unsigned char out[4]);
+bool DosOemString(const char *src, char *dst, size_t capacity);
 
 class DosUtf8Decoder
 {

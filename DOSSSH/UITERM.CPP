@@ -115,7 +115,7 @@ static bool DosReadCredential(void *ctx, const char *prompt, bool echo, bool all
 		if( ch >= 32 && ch <= 255 && ch != 127 )
 		{
 			unsigned char utf[4];
-			size_t size = DosOemToUtf8(g_dosCodePage, (unsigned char)ch, utf);
+			size_t size = DosOemToUtf8((unsigned char)ch, utf);
 			if( used + size < capacity )
 			{
 				memcpy(answer + used, utf, size);
@@ -316,7 +316,7 @@ private:
 		if( !translated )
 		{
 			if( ascii >= 128 )
-				size = DosOemToUtf8(g_dosCodePage, (unsigned char)ascii, encoded);
+				size = DosOemToUtf8((unsigned char)ascii, encoded);
 			else
 				size = KeyToVt(bios, encoded, sizeof(encoded), g_terminal.CursorApplication());
 		}

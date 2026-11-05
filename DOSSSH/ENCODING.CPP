@@ -17,6 +17,42 @@
 	You should have received a copy of the GNU General Public License
 	along with DOSSSH. If not, see <https://www.gnu.org/licenses/>.
 */
+#include <bios.h>
+#include <conio.h>
+#include <ctype.h>
+#include <dos.h>
+#include <stdio.h>
+#include <mem.h>
+
+#include "ENCODING.H"
+
+static int g_dosCodePage = 866;
+
+void InitDosCharset()
+{
+	union REGS r;
+	r.x.ax = 0x6601;
+	intdos(&r, &r);
+	switch( r.x.bx )
+	{
+	case 852:
+		g_dosCodePage = 852;
+		break;
+
+	case 850:
+	case 858:
+		g_dosCodePage = 850;
+		break;
+
+	case 437:
+		g_dosCodePage = 437;
+		break;
+
+	default:
+		g_dosCodePage = 866;
+	}
+	printf("DOS CP%d\n", r.x.bx);
+}
 
 static const unsigned short g_cp437_to_unicode[0x80] =
 {
@@ -126,9 +162,9 @@ static unsigned OemCp866ToUnicode(unsigned char c)
 	return g_cp866_to_unicode[c - 0x80];
 }
 
-static unsigned DosOemUnicode(int cp, unsigned char ch)
+static unsigned DosOemUnicode(unsigned char ch)
 {
-	switch( cp )
+	switch( g_dosCodePage )
 	{
 	case 850: return OemCp850ToUnicode(ch);
 	case 852: return OemCp852ToUnicode(ch);
@@ -137,12 +173,12 @@ static unsigned DosOemUnicode(int cp, unsigned char ch)
 	}
 }
 
-unsigned char DosUnicodeOem(int cp, unsigned long ch)
+unsigned char DosUnicodeOem(unsigned long ch)
 {
 	if( ch < 128ul )
 		return (unsigned char)ch;
 
-	if( cp == 866u )
+	if( g_dosCodePage == 866u )
 	{
 		if( ch >= 0x410ul && ch <= 0x43Ful )
 			return (unsigned char)(128u + ch - 0x410ul);
@@ -155,7 +191,7 @@ unsigned char DosUnicodeOem(int cp, unsigned long ch)
 	}
 
 	const unsigned short *table = g_cp437_to_unicode;
-	switch( cp )
+	switch( g_dosCodePage )
 	{
 	case 850: table = g_cp850_to_unicode; break;
 	case 852: table = g_cp852_to_unicode; break;
@@ -168,9 +204,9 @@ unsigned char DosUnicodeOem(int cp, unsigned long ch)
 	return '?';
 }
 
-size_t DosOemToUtf8(int cp, unsigned char ch, unsigned char out[4])
+size_t DosOemToUtf8(unsigned char ch, unsigned char out[4])
 {
-	int u = DosOemUnicode(cp, ch);
+	int u = DosOemUnicode(ch);
 	if( u < 0x80 )
 	{
 		out[0] = (unsigned char)u;
@@ -188,33 +224,13 @@ size_t DosOemToUtf8(int cp, unsigned char ch, unsigned char out[4])
 	return 3;
 }
 
-int DosNormalizeCodePage(int codepage)
-{
-	if( codepage != 437 && codepage != 850 && codepage != 852 && codepage != 866 )
-		return 437;
-	return codepage;
-}
-
-static int g_dosCodePage = 866;
-
-void InitDosCharset()
-{
-	union REGS r;
-
-	memset(&r, 0, sizeof(r));
-	r.x.ax = 0x6601;
-	intdos(&r, &r);
-	if( !(r.x.cflag) && (r.x.bx == 437 || r.x.bx == 850 || r.x.bx == 852 || r.x.bx == 866) )
-		g_dosCodePage = r.x.bx;
-}
-
-static bool DosOemString(const char *src, char *dst, size_t capacity)
+bool DosOemString(const char *src, char *dst, size_t capacity)
 {
 	size_t used = 0;
 	while( *src )
 	{
 		unsigned char utf[4];
-		size_t n = DosOemToUtf8(g_dosCodePage, (unsigned char)*src++, utf);
+		size_t n = DosOemToUtf8((unsigned char)*src++, utf);
 		if( used + n >= capacity )
 			return false;
 
@@ -224,6 +240,8 @@ static bool DosOemString(const char *src, char *dst, size_t capacity)
 	dst[used] = '\0';
 	return used != 0;
 }
+
+/* ------------------------------------------------------------------------- */
 
 void DosUtf8Decoder::Reset()
 {

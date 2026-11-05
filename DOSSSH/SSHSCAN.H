@@ -25,7 +25,7 @@
 #include "SSHPKT.H"
 
 #define SSHSCAN_ID_SIZE 256
-#define DOSSSH_VERSION "1.0"
+#define DOSSSH_VERSION "1.1"
 #define SSHSCAN_CLIENT_ID "SSH-2.0-DOSSSH_" DOSSSH_VERSION "\r\n"
 
 struct SSHSCAN_Session

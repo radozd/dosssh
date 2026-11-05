@@ -62,7 +62,7 @@ struct SSHCRYPT_RNG
 	bool initialized;
 
 	void Init(const unsigned char seed[64]);
-	bool Generate(unsigned char *out, size_t length);
+	bool Generate(unsigned char *p, size_t len);
 	void GeneratePadding(unsigned char *p, size_t len);
 	void Clear();
 

@@ -10,7 +10,7 @@ compile_options += -i=$(tcp_h_dir) -i=$(common_h_dir)
 
 tcpobjs = packet.obj arp.obj eth.obj ip.obj tcp.obj tcpsockm.obj udp.obj utils.obj dns.obj timer.obj ipasm.obj trace.obj
 sshobjs = sshsha.obj sshcrypt.obj sshent.obj sshpkt.obj sshscan.obj vt100.obj
-objs = dosssh.obj config.obj sshnet.obj $(sshobjs)
+objs = dosssh.obj encoding.obj config.obj sshnet.obj $(sshobjs)
 
 all : dosssh.exe
 

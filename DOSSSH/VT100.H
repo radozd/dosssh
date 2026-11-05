@@ -47,14 +47,13 @@ public:
 
 	bool Init(int cols, int rows);
 	void Reset();
-	void SetCodePage(int codepage);
 	void Feed(const unsigned char *bytes, size_t size);
 	size_t ReadReply(unsigned char *out, size_t capacity);
 
 	bool CursorApplication() const { return _screenState.cursorApplication; }
 
-	/ Dirty ranges are inclusive; consumed by the DOS video driver.
-	/ The virtual screen never exceeds 132 x 50 cells.
+	// Dirty ranges are inclusive; consumed by the DOS video driver.
+	// The virtual screen never exceeds 132 x 50 cells.
 	const VtCell *Row(int y) const;
 	bool TakeDirtyRow(int y, int &first, int &last);
 
@@ -106,7 +105,6 @@ private:
 	int _paramIndex;
 	char _state;
 	char _private;
-	int _codePage;
 	DosUtf8Decoder _utf8;
 	bool _screenFailed;
 

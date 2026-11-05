@@ -127,15 +127,17 @@ public:
 			Log('E', "Cannot initialize DOS text screen");
 			return 1;
 		}
+
 		g_screen.Capture();
 		if( !g_screen.IsCaptured() )
 		{
 			Log('E', "Cannot initialize DOS text screen");
 			return 1;
 		}
-		g_terminal.SetCodePage(g_dosCodePage);
+
 		g_terminal.Reset();
 		g_screen.Draw();
+		
 		UiTerminal display;
 
 		if( DebugIsOn() )
