@@ -37,7 +37,6 @@ public:
 class SshCrypt
 {
 public:
-	/* Volatile overwrite of secrets and constant-time comparison of MACs. */
 	static void Zero(void *ptr, size_t count);
 	static bool Equal(const unsigned char *a, const unsigned char *b, size_t count);
 };

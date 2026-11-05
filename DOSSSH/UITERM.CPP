@@ -18,7 +18,6 @@
 	along with DOSSSH. If not, see <https://www.gnu.org/licenses/>.
 */
 
-/* Read the username in the DOS OEM codepage, convert to UTF-8. */
 static bool DosUsername(char *username, size_t capacity)
 {
 	DosFlushKeys();
@@ -60,16 +59,13 @@ static bool DosUsername(char *username, size_t capacity)
 	return DosOemString(oem, username, capacity);
 }
 
-/* Read a credential only after KEX and host-key verification.
- * UTF-8 is sent over SSH; DOS OEM bytes are only used for local echo.
- */
+// Read a credential only after KEX and host-key verification.
+// UTF-8 is sent over SSH; DOS OEM bytes are only used for local echo.
 static bool DosReadCredential(void *ctx, const char *prompt, bool echo, bool allowEmpty, char *answer, size_t capacity)
 {
 	DosFlushKeys();
 	if( prompt && *prompt )
 	{
-		/* An SSH keyboard-interactive prompt may end in CR/LF.  Keep
-		 * the answer on the same line, as with a Unix password prompt. */
 		int length = strlen(prompt);
 		while( length && (prompt[length - 1] == '\r' || prompt[length - 1] == '\n') )
 			length--;
@@ -230,10 +226,10 @@ public:
 private:
 	bool _redrawPending;
 	unsigned long _lastDrawTick;
-	/* Local control keys must work when SSH has no send credit.  Buffer
-	 * ordinary BIOS keystrokes until the server grants window credit. */
+
 	enum { KeyCapacity = 128 };
 	uint16_t _queued[KeyCapacity];
+
 	size_t _keyHead;
 	size_t _keyCount;
 	bool _overflowNotified;
@@ -244,10 +240,9 @@ private:
 		{
 			uint16_t key = biosKeyRead();
 			if( (key & 255u) == 0 && ((key >> 8) & 255u) == 0x2Du )
-				return -1; /* Alt+X: always local, never forwarded */
+				return -1; // Alt+X: always local
 			if( _keyCount == KeyCapacity )
 			{
-				/* A bounded FIFO is required on DOS.  Signal input loss. */
 				if( !_overflowNotified )
 				{
 					printf("\a");
@@ -268,8 +263,8 @@ private:
 			return;
 
 		unsigned long now = g_transport.Ticks();
-		/* Coalesce full-screen terminal updates (e.g. MC's F3 redraw).
-		 * At most one VGA update per 55-ms BIOS timer tick. */
+		// Coalesce full-screen terminal updates (e.g. MC's F3 redraw).
+		// At most one VGA update per 55-ms BIOS timer tick.
 		if( now - _lastDrawTick < 1ul )
 			return;
 		g_screen.Draw();
@@ -281,13 +276,13 @@ private:
 	{
 		DrawIfDue();
 		if( !g_terminal.Ok() )
-			return -2; /* a video allocation failure is not an Alt+X detach */
+			return -2; // a video allocation failure
 
 		if( DrainBiosKeys() == -1 )
 			return -1;
 
 		if( capacity == 0 )
-			return 0; /* command-only probe; never dereference buffer */
+			return 0; // command-only probe; never dereference buffer
 
 		size_t count = g_terminal.ReadReply(buffer, capacity);
 		if( count )
@@ -307,13 +302,13 @@ private:
 		size_t size = 0;
 		bool translated = false;
 
-		/* Encode BEFORE removing the key: tiny SSH channel windows can
-		 * accommodate fewer bytes than an xterm escape sequence. */
+		// Encode BEFORE removing the key: tiny SSH channel windows can
+		// accommodate fewer bytes than an xterm escape sequence.
 		if( ascii == 0 || ascii == 0xE0 )
 		{
 			size = KeyToVt(bios, encoded, sizeof(encoded), g_terminal.CursorApplication());
-			/* E0 is also a printable OEM byte (Alt+Numpad) if the BIOS
-			 * supplies no scan code. Only discard unknown extended scans. */
+			// E0 is also a printable OEM byte (Alt+Numpad) if the BIOS
+			// supplies no scan code. Only discard unknown extended scans.
 			if( ascii == 0 || size > 1u ||
 				(ascii == 0xE0 && size == 0 && (bios & 0xFF00u) != 0) )
 				translated = true;
@@ -326,7 +321,7 @@ private:
 				size = KeyToVt(bios, encoded, sizeof(encoded), g_terminal.CursorApplication());
 		}
 		if( size > capacity )
-			return 0; /* Wait for SSH WINDOW_ADJUST; keep this key. */
+			return 0; // Wait for SSH WINDOW_ADJUST; keep this key.
 
 		_queued[_keyHead] = 0;
 		_keyHead = (_keyHead + 1u) % KeyCapacity;

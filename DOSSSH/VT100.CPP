@@ -791,9 +791,7 @@ size_t KeyToVt(unsigned int biosKey, unsigned char *out, size_t capacity, bool a
 	const char *s = NULL;
 	int scan = (biosKey >> 8) & 255;
 	int ascii = biosKey & 255;
-	/* BIOS AH=0 may return either 00 or E0 for an extended key.
-	 * Only interpret scan codes as navigation for extended key events;
-	 * printable keys on the numeric keypad must remain printable. */
+	// BIOS AH=0 may return either 00 or E0 for an extended key.
 	if( ascii == 0 || ascii == 0xE0 )
 	{
 		switch( scan )
@@ -828,19 +826,19 @@ size_t KeyToVt(unsigned int biosKey, unsigned char *out, size_t capacity, bool a
 		case 0x51:
 			s = "\033[6~";
 			break;
-		case 0x0F: /* Shift-Tab */
+		case 0x0F: // Shift-Tab
 			s = "\033[Z";
 			break;
-		case 0x73: /* Ctrl+Left */
+		case 0x73: // Ctrl+Left
 			s = "\033[1;5D";
 			break;
-		case 0x74: /* Ctrl+Right */
+		case 0x74: // Ctrl+Right
 			s = "\033[1;5C";
 			break;
-		case 0x77: /* Ctrl+Home */
+		case 0x77: // Ctrl+Home
 			s = "\033[1;5H";
 			break;
-		case 0x75: /* Ctrl+End */
+		case 0x75: // Ctrl+End
 			s = "\033[1;5F";
 			break;
 		case 0x3B:

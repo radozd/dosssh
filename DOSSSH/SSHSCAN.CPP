@@ -1859,10 +1859,10 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, int cols,
 	}
 }
 
-/* The SHA256 fingerprint uses OpenSSH's unpadded base64 representation. */
+// The SHA256 fingerprint uses OpenSSH's unpadded base64 representation.
 static const char g_sshBase64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-/* Exactly 32 input bytes give 43 unpadded base64 characters. */
+// Exactly 32 input bytes give 43 unpadded base64 characters.
 static void SshScanBase64(const unsigned char digest[32], char out[44])
 {
 	for( size_t i = 0, j = 0; i < 30; i += 3, j += 4 )
@@ -1889,7 +1889,6 @@ void SshScanFingerprint(const unsigned char digest[32], char result[52])
 	SshScanBase64(digest, result + 7);
 }
 
-/* Strict RFC3629 UTF-8 validation (ASCII, 2/3/4-byte sequences). */
 bool SshScanUtf8Valid(const unsigned char *p, size_t size)
 {
 	if( !p && size )

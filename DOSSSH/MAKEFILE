@@ -5,7 +5,7 @@ tcp_c_dir = ..\mTCP\src\TCPLIB\
 common_h_dir = ..\mTCP\src\INCLUDE
 
 memory_model = -ml
-compile_options = -3 $(memory_model) -DCFG_H="dosssh.cfg" -oh -ok -ot -s -oa -ei -zp2 -we -ob -ol+ -oi+ -zmf
+compile_options = -3 $(memory_model) -DCFG_H="dosssh.cfg" -oh -ok -os -s -oa -ei -zp2 -we -ob -ol+ -oi+ -zmf
 compile_options += -i=$(tcp_h_dir) -i=$(common_h_dir)
 
 tcpobjs = packet.obj arp.obj eth.obj ip.obj tcp.obj tcpsockm.obj udp.obj utils.obj dns.obj timer.obj ipasm.obj trace.obj

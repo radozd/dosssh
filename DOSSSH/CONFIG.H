@@ -25,7 +25,6 @@
 
 #define SSH_DEFAULT_PORT (22)
 
-/* DOSSSH.DAT: 64-byte seed as uppercase HEX, blank line, trusted host keys. */
 class SshData
 {
 public:

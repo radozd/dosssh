@@ -18,8 +18,6 @@
 	along with DOSSSH. If not, see <https://www.gnu.org/licenses/>.
 */
 
-/* One session owns SSH cipher state and the active username. The screen and terminal
- * objects remain global as in FTP2P. Cleanup is safe after early returns. */
 class UiApp
 {
 public:
@@ -50,8 +48,6 @@ public:
 
 	int Run(const char *programPath)
 	{
-		/* The mTCP timer starts only after entropy initialization.  Use
-		 * the BIOS tick counter until the mTCP interrupt hook is active. */
 		volatile unsigned long far *ticks = (volatile unsigned long far *)MK_FP(0x40, 0x6C);
 		unsigned long start = *ticks;
 		if( !SshEntropy::Initialize(_rng, programPath) )
@@ -151,9 +147,9 @@ public:
 
 		DosFlushKeys();
 		g_transport.SetInteractive(true);
-		/* xterm defines F1-F12 in both video modes. Its basic 8 colours
-		 * plus bright foreground fit the 16-colour CGA/EGA/VGA palette;
-		 * UiScreen maps output to monochrome attributes for MDA. */
+		// xterm defines F1-F12 in both video modes. Its basic 8 colours
+		// plus bright foreground fit the 16-colour CGA/EGA/VGA palette;
+		// UiScreen maps output to monochrome attributes for MDA.
 		bool opened = SshScanShell(_session, _rng, g_screen.Cols(), g_screen.Rows(),
 			"xterm", UiTerminal::Input, UiTerminal::Output,
 			&display, &reason, TIMER_SECS_TO_TICKS(30));

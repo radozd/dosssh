@@ -144,7 +144,6 @@ static int KeyAscii(uint16_t key)
 	return key & 0x00FF;
 }
 
-/* Typed-ahead keys belong to the previous screen, not the next prompt. */
 static void DosFlushKeys()
 {
 	while( biosIsKeyReady() )

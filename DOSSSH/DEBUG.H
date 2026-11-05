@@ -30,12 +30,11 @@ void DebugStopped();
 
 /* All types are written to DOSSSH.LOG only with -debug. Before the
  * screen is captured, only E=error is also printed to the console.
- * I=information, W=warning, N=network, S=stage, P=packet, K=key.
- * LongOp displays its own status independently of -debug. */
+ * I=information, W=warning, N=network, S=stage, P=packet, K=key. */
 void Log(char type, const char *format, ...);
 
-/* A scoped timer. INT 1Ch updates only the digits in text video memory;
- * the destructor leaves the completed line on screen. No user input inside. */
+// A scoped timer. INT 1Ch updates only the digits in text video memory;
+// the destructor leaves the completed line on screen. No user input inside.
 class LongOp
 {
 public:

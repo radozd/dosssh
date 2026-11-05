@@ -28,7 +28,6 @@
 #define DOSSSH_VERSION "1.0"
 #define SSHSCAN_CLIENT_ID "SSH-2.0-DOSSSH_" DOSSSH_VERSION "\r\n"
 
-/* Authenticated connection state.  Directional ciphers rotate on NEWKEYS. */
 struct SSHSCAN_Session
 {
 	SSHPKT_Cipher encrypt;
@@ -38,8 +37,8 @@ struct SSHSCAN_Session
 	bool authenticated;
 	bool exitStatusReceived;
 	unsigned long exitStatus;
-	/* RFC 4253: the original session identifier and packet sequence numbers
-	 * survive every rekey; cipher states do not. */
+	// RFC 4253: the original session identifier and packet sequence numbers
+	// survive every rekey; cipher states do not.
 	unsigned char sessionId[32];
 	unsigned char serverHostKey[51];
 	size_t serverHostKeyLength;
@@ -59,18 +58,17 @@ struct SSHSCAN_Session
 };
 
 typedef bool (*SSHSCAN_Password)(void *ctx, char *buffer, size_t capacity);
-/* Keyboard-interactive may ask for passwords and for displayed OTPs. */
+// Keyboard-interactive may ask for passwords and for displayed OTPs.
 typedef bool (*SSHSCAN_Challenge)(void *ctx, const char *prompt, bool echo, char *response, size_t capacity);
 typedef void (*SSHSCAN_Output)(void *ctx, const unsigned char *data, size_t length);
-/* capacity=0: poll only local commands (0, -1 detach, -2 fatal).
- * capacity>0: returns 0 idle, -1 disconnect, -2 fatal or 1..capacity bytes. */
+// capacity=0: poll only local commands (0, -1 detach, -2 fatal).
+// capacity>0: returns 0 idle, -1 disconnect, -2 fatal or 1..capacity bytes.
 typedef int (*SSHSCAN_Input)(void *ctx, unsigned char *data, size_t capacity);
 typedef bool (*SSHSCAN_HostTrust)(void *ctx, const unsigned char *hostKey, size_t keySize, const unsigned char sha256[32]);
 
 bool SshScanIdent(char *server, size_t capacity, unsigned long timeoutTicks);
 bool SshScanSendIdent(unsigned long timeoutTicks);
 
-/* Verify the signed host key before calling the trust callback. */
 bool SshScanExchangeTofu(const char *serverIdent, SSHCRYPT_RNG &rng,
 	SSHSCAN_Session &session, SSHSCAN_HostTrust checkHost, void *trustCtx,
 	const char **reason, unsigned long timeoutTicks);

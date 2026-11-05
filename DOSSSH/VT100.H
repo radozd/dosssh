@@ -24,7 +24,6 @@
 #include <stddef.h>
 #include "ENCODING.H"
 
-/* DOS code page 437 characters, EGA palette indices, attribute flags. */
 struct VtCell
 {
 	unsigned char ch;
@@ -54,8 +53,8 @@ public:
 
 	bool CursorApplication() const { return _screenState.cursorApplication; }
 
-	/* Dirty ranges are inclusive; consumed by the DOS video driver.
-	 * The virtual screen never exceeds 132 x 50 cells. */
+	/ Dirty ranges are inclusive; consumed by the DOS video driver.
+	/ The virtual screen never exceeds 132 x 50 cells.
 	const VtCell *Row(int y) const;
 	bool TakeDirtyRow(int y, int &first, int &last);
 

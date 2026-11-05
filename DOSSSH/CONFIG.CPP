@@ -31,8 +31,8 @@
 /* DOSSSH.DAT is ASCII text with explicit CRLF endings:
  * 128 HEX characters (64-byte seed), CRLF, CRLF,
  * then: normalized-host SP ssh-ed25519 SP base64(51-byte SSH key blob) CRLF.
- * The key lines use OpenSSH known_hosts syntax. No binary-format reader,
- * checksum footer, version header or migration is supported. */
+ * The key lines use OpenSSH known_hosts syntax. */
+
 static const int SSHDATA_MAX_HOSTS = 128;
 static const size_t SSHDATA_SEED_HEX = 128;
 static const size_t SSHDATA_KEY_BASE64 = 68;
@@ -42,8 +42,8 @@ static char g_backPath[] = "C:\\DOSSSH.BAK";
 static const char g_base64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 static const char g_keyType[] = " ssh-ed25519 ";
 
-/* DOS 21h/36h reports FFFFh in AX if the specified drive is invalid.
- * This is a one-based drive number: 1=A, 2=B, 3=C. */
+// DOS 21h/36h reports FFFFh in AX if the specified drive is invalid.
+// This is a one-based drive number: 1=A, 2=B, 3=C.
 static bool SshDataDrive(int drive)
 {
 	union REGS regs;
@@ -56,8 +56,7 @@ static bool SshDataDrive(int drive)
 
 bool SshData::Select(unsigned char launchedDrive)
 {
-	/* Prefer C:; otherwise use only the drive that launched DOSSSH.
-	 * Never probe the other floppy drive as a substitute. */
+	// Prefer C:; otherwise use only the drive that launched DOSSSH.
 	unsigned char drive = 2;
 	if( !SshDataDrive(3) )
 	{
@@ -533,7 +532,7 @@ bool SshData::KnownHost(const char *host, unsigned int port, const unsigned char
 		SshCrypt::Zero(seed, sizeof(seed));
 		return false;
 	}
-	/* Do not accept another key that appeared since the confirmation. */
+
 	int current;
 	if( !SshDataVerify(g_dataPath, seed, lookup, key, &current, NULL) || current != 0 )
 	{

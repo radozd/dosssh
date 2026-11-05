@@ -31,7 +31,7 @@ size_t DosOemToUtf8(int codepage, unsigned char ch, unsigned char out[4]);
 class DosUtf8Decoder
 {
 public:
-	/* Valid Unicode code points are nonnegative. */
+	// Valid Unicode code points are nonnegative.
 	enum
 	{
 		PendingByte = -1,

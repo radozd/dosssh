@@ -40,10 +40,50 @@ unsigned long ShaRor32(unsigned long value, int bits);
     value [ax dx]        \
     modify exact [ax dx] nomemory;
 
-static unsigned __int64 ShaRor64(unsigned __int64 n, int r)
-{
-	return (n >> r) | (n << (64 - r));
-}
+unsigned __int64 ShaRor64(unsigned __int64 value, int bits);
+#pragma aux ShaRor64 = \
+    ".386"               \
+    "shl eax, 16"        \
+    "mov ax, bx"         \
+    "shl ecx, 16"        \
+    "mov cx, dx"         \
+    "mov edx, eax"       \
+    "mov eax, ecx"       \
+    "mov cx, si"         \
+    "test si, 32"        \
+    "jz short ror_small"  \
+    "xchg eax, edx"      \
+    "ror_small: mov ebx, eax" \
+    "shrd eax, edx, cl"  \
+    "shrd edx, ebx, cl"  \
+    "mov ecx, eax"       \
+    "shr ecx, 16"        \
+    "mov bx, dx"         \
+    "shr edx, 16"        \
+    "xchg ax, dx"        \
+    parm [ax bx cx dx] [si] nomemory \
+    value [ax bx cx dx]   \
+    modify exact [ax bx cx dx] nomemory;
+
+unsigned __int64 ShaShr64(unsigned __int64 value, int bits);
+#pragma aux ShaShr64 = \
+    ".386"               \
+    "shl eax, 16"        \
+    "mov ax, bx"         \
+    "shl ecx, 16"        \
+    "mov cx, dx"         \
+    "mov edx, ecx"       \
+    "mov cx, si"         \
+    "shrd edx, eax, cl"  \
+    "shr eax, cl"        \
+    "mov bx, ax"         \
+    "shr eax, 16"        \
+    "mov ecx, edx"       \
+    "mov dx, cx"         \
+    "shr ecx, 16"        \
+    parm [ax bx cx dx] [si] nomemory \
+    value [ax bx cx dx]   \
+    modify exact [ax bx cx dx] nomemory;
 
 static void ShaStore32(unsigned char *p, unsigned long value)
 {
@@ -60,16 +100,13 @@ static unsigned long ShaLoad32(const unsigned char *p)
 
 static void ShaStore64(unsigned char *p, unsigned __int64 value)
 {
-	for( int i = 0; i < 8; i++ )
-		p[i] = (unsigned char)(value >> (56 - 8*i));
+	ShaStore32(p, (unsigned long)(value >> 32));
+	ShaStore32(p + 4, (unsigned long)value);
 }
 
 static unsigned __int64 ShaLoad64(const unsigned char *p)
 {
-	unsigned __int64 value = 0;
-	for( int i = 0; i < 8; i++ )
-		value = (value << 8) | (unsigned __int64)p[i];
-	return value;
+	return ((unsigned __int64)ShaLoad32(p) << 32) | ShaLoad32(p + 4);
 }
 
 static void ShaWipe(void *data, size_t length)
@@ -246,8 +283,8 @@ void Sha512State::Block(const unsigned char *block)
 	for( int i = 16; i < 80; i++ )
 	{
 		unsigned __int64 x = w[i - 15], y = w[i - 2];
-		unsigned __int64 s0 = ShaRor64(x, 1) ^ ShaRor64(x, 8) ^ (x >> 7);
-		unsigned __int64 s1 = ShaRor64(y, 19) ^ ShaRor64(y, 61) ^ (y >> 6);
+		unsigned __int64 s0 = ShaRor64(x, 1) ^ ShaRor64(x, 8) ^ ShaShr64(x, 7);
+		unsigned __int64 s1 = ShaRor64(y, 19) ^ ShaRor64(y, 61) ^ ShaShr64(y, 6);
 		w[i] = w[i - 16] + s0 + w[i - 7] + s1;
 	}
 

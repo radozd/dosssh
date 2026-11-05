@@ -50,26 +50,66 @@ __int64 Mul32(long a, long b);
     value [ax bx cx dx]   \
     modify exact [ax bx cx dx] nomemory;
 
-static unsigned __int64 Load3(const unsigned char *in)
+// Signed carry shifts are always between 1 and 31 bits.
+__int64 Sar64(__int64 value, int bits);
+#pragma aux Sar64 = \
+    ".386"               \
+    "shl eax, 16"        \
+    "mov ax, bx"         \
+    "shl ecx, 16"        \
+    "mov cx, dx"         \
+    "mov edx, ecx"       \
+    "mov cx, si"         \
+    "shrd edx, eax, cl"  \
+    "sar eax, cl"        \
+    "mov bx, ax"         \
+    "shr eax, 16"        \
+    "mov ecx, edx"       \
+    "mov dx, cx"         \
+    "shr ecx, 16"        \
+    parm [ax bx cx dx] [si] nomemory \
+    value [ax bx cx dx]   \
+    modify exact [ax bx cx dx] nomemory;
+
+__int64 Shl64(__int64 value, int bits);
+#pragma aux Shl64 = \
+    ".386"               \
+    "shl eax, 16"        \
+    "mov ax, bx"         \
+    "shl ecx, 16"        \
+    "mov cx, dx"         \
+    "mov edx, ecx"       \
+    "mov cx, si"         \
+    "shld eax, edx, cl"  \
+    "shl edx, cl"        \
+    "mov bx, ax"         \
+    "shr eax, 16"        \
+    "mov ecx, edx"       \
+    "mov dx, cx"         \
+    "shr ecx, 16"        \
+    parm [ax bx cx dx] [si] nomemory \
+    value [ax bx cx dx]   \
+    modify exact [ax bx cx dx] nomemory;
+
+static unsigned long Load3(const unsigned char *in)
 {
 	unsigned long result;
 	result = (unsigned long)in[0];
 	result |= ((unsigned long)in[1]) << 8;
 	result |= ((unsigned long)in[2]) << 16;
-	return (__int64)result;
+	return result;
 }
 
-static unsigned __int64 Load4(const unsigned char *in)
+static unsigned long Load4(const unsigned char *in)
 {
 	unsigned long result;
 	result = (unsigned long)in[0];
 	result |= ((unsigned long)in[1]) << 8;
 	result |= ((unsigned long)in[2]) << 16;
 	result |= ((unsigned long)in[3]) << 24;
-	return (__int64)result;
+	return result;
 }
 
-/* Keep this type an aggregate: curve constants and tables use static initializers. */
 struct FieldElement
 {
 	long v[10];
@@ -170,36 +210,36 @@ void FieldElement::FromBytes(const unsigned char *s)
 	__int64 h8 = Load3(s + 26) << 4;
 	__int64 h9 = (Load3(s + 29) & 8388607) << 2;
 
-	__int64 carry9 = (h9 + (1L << 24)) >> 25;
+	__int64 carry9 = Sar64(h9 + (1L << 24), 25);
 	h0 += carry9 * 19;
-	h9 -= carry9 * (1L << 25);
-	__int64 carry1 = (h1 + (1L << 24)) >> 25;
+	h9 -= Shl64(carry9, 25);
+	__int64 carry1 = Sar64(h1 + (1L << 24), 25);
 	h2 += carry1;
-	h1 -= carry1 * (1L << 25);
-	__int64 carry3 = (h3 + (1L << 24)) >> 25;
+	h1 -= Shl64(carry1, 25);
+	__int64 carry3 = Sar64(h3 + (1L << 24), 25);
 	h4 += carry3;
-	h3 -= carry3 * (1L << 25);
-	__int64 carry5 = (h5 + (1L << 24)) >> 25;
+	h3 -= Shl64(carry3, 25);
+	__int64 carry5 = Sar64(h5 + (1L << 24), 25);
 	h6 += carry5;
-	h5 -= carry5 * (1L << 25);
-	__int64 carry7 = (h7 + (1L << 24)) >> 25;
+	h5 -= Shl64(carry5, 25);
+	__int64 carry7 = Sar64(h7 + (1L << 24), 25);
 	h8 += carry7;
-	h7 -= carry7 * (1L << 25);
-	__int64 carry0 = (h0 + (1L << 25)) >> 26;
+	h7 -= Shl64(carry7, 25);
+	__int64 carry0 = Sar64(h0 + (1L << 25), 26);
 	h1 += carry0;
-	h0 -= carry0 * (1L << 26);
-	__int64 carry2 = (h2 + (1L << 25)) >> 26;
+	h0 -= Shl64(carry0, 26);
+	__int64 carry2 = Sar64(h2 + (1L << 25), 26);
 	h3 += carry2;
-	h2 -= carry2 * (1L << 26);
-	__int64 carry4 = (h4 + (1L << 25)) >> 26;
+	h2 -= Shl64(carry2, 26);
+	__int64 carry4 = Sar64(h4 + (1L << 25), 26);
 	h5 += carry4;
-	h4 -= carry4 * (1L << 26);
-	__int64 carry6 = (h6 + (1L << 25)) >> 26;
+	h4 -= Shl64(carry4, 26);
+	__int64 carry6 = Sar64(h6 + (1L << 25), 26);
 	h7 += carry6;
-	h6 -= carry6 * (1L << 26);
-	__int64 carry8 = (h8 + (1L << 25)) >> 26;
+	h6 -= Shl64(carry6, 26);
+	__int64 carry8 = Sar64(h8 + (1L << 25), 26);
 	h9 += carry8;
-	h8 -= carry8 * (1L << 26);
+	h8 -= Shl64(carry8, 26);
 
 	v[0] = (long)h0;
 	v[1] = (long)h1;
@@ -344,42 +384,42 @@ void FieldElement::Mul(const FieldElement *f, const FieldElement *g)
 	__int64 h8 = Mul32(f0, g8) + Mul32(f1_2, g7) + Mul32(f2, g6) + Mul32(f3_2, g5) + Mul32(f4, g4) + Mul32(f5_2, g3) + Mul32(f6, g2) + Mul32(f7_2, g1) + Mul32(f8, g0) + Mul32(f9_2, g9_19);
 	__int64 h9 = Mul32(f0, g9) + Mul32(f1, g8) + Mul32(f2, g7) + Mul32(f3, g6) + Mul32(f4, g5) + Mul32(f5, g4) + Mul32(f6, g3) + Mul32(f7, g2) + Mul32(f8, g1) + Mul32(f9, g0);
 
-	__int64 carry0 = (h0 + (1L << 25)) >> 26;
+	__int64 carry0 = Sar64(h0 + (1L << 25), 26);
 	h1 += carry0;
-	h0 -= carry0 * (1L << 26);
-	__int64 carry4 = (h4 + (1L << 25)) >> 26;
+	h0 -= Shl64(carry0, 26);
+	__int64 carry4 = Sar64(h4 + (1L << 25), 26);
 	h5 += carry4;
-	h4 -= carry4 * (1L << 26);
-	__int64 carry1 = (h1 + (1L << 24)) >> 25;
+	h4 -= Shl64(carry4, 26);
+	__int64 carry1 = Sar64(h1 + (1L << 24), 25);
 	h2 += carry1;
-	h1 -= carry1 * (1L << 25);
-	__int64 carry5 = (h5 + (1L << 24)) >> 25;
+	h1 -= Shl64(carry1, 25);
+	__int64 carry5 = Sar64(h5 + (1L << 24), 25);
 	h6 += carry5;
-	h5 -= carry5 * (1L << 25);
-	__int64 carry2 = (h2 + (1L << 25)) >> 26;
+	h5 -= Shl64(carry5, 25);
+	__int64 carry2 = Sar64(h2 + (1L << 25), 26);
 	h3 += carry2;
-	h2 -= carry2 * (1L << 26);
-	__int64 carry6 = (h6 + (1L << 25)) >> 26;
+	h2 -= Shl64(carry2, 26);
+	__int64 carry6 = Sar64(h6 + (1L << 25), 26);
 	h7 += carry6;
-	h6 -= carry6 * (1L << 26);
-	__int64 carry3 = (h3 + (1L << 24)) >> 25;
+	h6 -= Shl64(carry6, 26);
+	__int64 carry3 = Sar64(h3 + (1L << 24), 25);
 	h4 += carry3;
-	h3 -= carry3 * (1L << 25);
-	__int64 carry7 = (h7 + (1L << 24)) >> 25;
+	h3 -= Shl64(carry3, 25);
+	__int64 carry7 = Sar64(h7 + (1L << 24), 25);
 	h8 += carry7;
-	h7 -= carry7 * (1L << 25);
-	carry4 = (h4 + (1L << 25)) >> 26;
+	h7 -= Shl64(carry7, 25);
+	carry4 = Sar64(h4 + (1L << 25), 26);
 	h5 += carry4;
-	h4 -= carry4 * (1L << 26);
-	__int64 carry8 = (h8 + (1L << 25)) >> 26;
+	h4 -= Shl64(carry4, 26);
+	__int64 carry8 = Sar64(h8 + (1L << 25), 26);
 	h9 += carry8;
-	h8 -= carry8 * (1L << 26);
-	__int64 carry9 = (h9 + (1L << 24)) >> 25;
+	h8 -= Shl64(carry8, 26);
+	__int64 carry9 = Sar64(h9 + (1L << 24), 25);
 	h0 += carry9 * 19;
-	h9 -= carry9 * (1L << 25);
-	carry0 = (h0 + (1L << 25)) >> 26;
+	h9 -= Shl64(carry9, 25);
+	carry0 = Sar64(h0 + (1L << 25), 26);
 	h1 += carry0;
-	h0 -= carry0 * (1L << 26);
+	h0 -= Shl64(carry0, 26);
 
 	v[0] = (long)h0;
 	v[1] = (long)h1;
@@ -431,42 +471,42 @@ void FieldElement::Square(const FieldElement *f)
 	__int64 h8 = Mul32(f0_2, f8) + Mul32(f1_2, f7_2) + Mul32(f2_2, f6) + Mul32(f3_2, f5_2) + Mul32(f4, f4) + Mul32(f9, f9_38);
 	__int64 h9 = Mul32(f0_2, f9) + Mul32(f1_2, f8) + Mul32(f2_2, f7) + Mul32(f3_2, f6) + Mul32(f4_2, f5);
 
-	__int64 carry0 = (h0 + (1L << 25)) >> 26;
+	__int64 carry0 = Sar64(h0 + (1L << 25), 26);
 	h1 += carry0;
-	h0 -= carry0 * (1L << 26);
-	__int64 carry4 = (h4 + (1L << 25)) >> 26;
+	h0 -= Shl64(carry0, 26);
+	__int64 carry4 = Sar64(h4 + (1L << 25), 26);
 	h5 += carry4;
-	h4 -= carry4 * (1L << 26);
-	__int64 carry1 = (h1 + (1L << 24)) >> 25;
+	h4 -= Shl64(carry4, 26);
+	__int64 carry1 = Sar64(h1 + (1L << 24), 25);
 	h2 += carry1;
-	h1 -= carry1 * (1L << 25);
-	__int64 carry5 = (h5 + (1L << 24)) >> 25;
+	h1 -= Shl64(carry1, 25);
+	__int64 carry5 = Sar64(h5 + (1L << 24), 25);
 	h6 += carry5;
-	h5 -= carry5 * (1L << 25);
-	__int64 carry2 = (h2 + (1L << 25)) >> 26;
+	h5 -= Shl64(carry5, 25);
+	__int64 carry2 = Sar64(h2 + (1L << 25), 26);
 	h3 += carry2;
-	h2 -= carry2 * (1L << 26);
-	__int64 carry6 = (h6 + (1L << 25)) >> 26;
+	h2 -= Shl64(carry2, 26);
+	__int64 carry6 = Sar64(h6 + (1L << 25), 26);
 	h7 += carry6;
-	h6 -= carry6 * (1L << 26);
-	__int64 carry3 = (h3 + (1L << 24)) >> 25;
+	h6 -= Shl64(carry6, 26);
+	__int64 carry3 = Sar64(h3 + (1L << 24), 25);
 	h4 += carry3;
-	h3 -= carry3 * (1L << 25);
-	__int64 carry7 = (h7 + (1L << 24)) >> 25;
+	h3 -= Shl64(carry3, 25);
+	__int64 carry7 = Sar64(h7 + (1L << 24), 25);
 	h8 += carry7;
-	h7 -= carry7 * (1L << 25);
-	carry4 = (h4 + (1L << 25)) >> 26;
+	h7 -= Shl64(carry7, 25);
+	carry4 = Sar64(h4 + (1L << 25), 26);
 	h5 += carry4;
-	h4 -= carry4 * (1L << 26);
-	__int64 carry8 = (h8 + (1L << 25)) >> 26;
+	h4 -= Shl64(carry4, 26);
+	__int64 carry8 = Sar64(h8 + (1L << 25), 26);
 	h9 += carry8;
-	h8 -= carry8 * (1L << 26);
-	__int64 carry9 = (h9 + (1L << 24)) >> 25;
+	h8 -= Shl64(carry8, 26);
+	__int64 carry9 = Sar64(h9 + (1L << 24), 25);
 	h0 += carry9 * 19;
-	h9 -= carry9 * (1L << 25);
-	carry0 = (h0 + (1L << 25)) >> 26;
+	h9 -= Shl64(carry9, 25);
+	carry0 = Sar64(h0 + (1L << 25), 26);
 	h1 += carry0;
-	h0 -= carry0 * (1L << 26);
+	h0 -= Shl64(carry0, 26);
 
 	v[0] = (long)h0;
 	v[1] = (long)h1;
@@ -529,42 +569,42 @@ void FieldElement::Square2(const FieldElement *f)
 	h8 += h8;
 	h9 += h9;
 
-	__int64 carry0 = (h0 + (1L << 25)) >> 26;
+	__int64 carry0 = Sar64(h0 + (1L << 25), 26);
 	h1 += carry0;
-	h0 -= carry0 * (1L << 26);
-	__int64 carry4 = (h4 + (1L << 25)) >> 26;
+	h0 -= Shl64(carry0, 26);
+	__int64 carry4 = Sar64(h4 + (1L << 25), 26);
 	h5 += carry4;
-	h4 -= carry4 * (1L << 26);
-	__int64 carry1 = (h1 + (1L << 24)) >> 25;
+	h4 -= Shl64(carry4, 26);
+	__int64 carry1 = Sar64(h1 + (1L << 24), 25);
 	h2 += carry1;
-	h1 -= carry1 * (1L << 25);
-	__int64 carry5 = (h5 + (1L << 24)) >> 25;
+	h1 -= Shl64(carry1, 25);
+	__int64 carry5 = Sar64(h5 + (1L << 24), 25);
 	h6 += carry5;
-	h5 -= carry5 * (1L << 25);
-	__int64 carry2 = (h2 + (1L << 25)) >> 26;
+	h5 -= Shl64(carry5, 25);
+	__int64 carry2 = Sar64(h2 + (1L << 25), 26);
 	h3 += carry2;
-	h2 -= carry2 * (1L << 26);
-	__int64 carry6 = (h6 + (1L << 25)) >> 26;
+	h2 -= Shl64(carry2, 26);
+	__int64 carry6 = Sar64(h6 + (1L << 25), 26);
 	h7 += carry6;
-	h6 -= carry6 * (1L << 26);
-	__int64 carry3 = (h3 + (1L << 24)) >> 25;
+	h6 -= Shl64(carry6, 26);
+	__int64 carry3 = Sar64(h3 + (1L << 24), 25);
 	h4 += carry3;
-	h3 -= carry3 * (1L << 25);
-	__int64 carry7 = (h7 + (1L << 24)) >> 25;
+	h3 -= Shl64(carry3, 25);
+	__int64 carry7 = Sar64(h7 + (1L << 24), 25);
 	h8 += carry7;
-	h7 -= carry7 * (1L << 25);
-	carry4 = (h4 + (1L << 25)) >> 26;
+	h7 -= Shl64(carry7, 25);
+	carry4 = Sar64(h4 + (1L << 25), 26);
 	h5 += carry4;
-	h4 -= carry4 * (1L << 26);
-	__int64 carry8 = (h8 + (1L << 25)) >> 26;
+	h4 -= Shl64(carry4, 26);
+	__int64 carry8 = Sar64(h8 + (1L << 25), 26);
 	h9 += carry8;
-	h8 -= carry8 * (1L << 26);
-	__int64 carry9 = (h9 + (1L << 24)) >> 25;
+	h8 -= Shl64(carry8, 26);
+	__int64 carry9 = Sar64(h9 + (1L << 24), 25);
 	h0 += carry9 * 19;
-	h9 -= carry9 * (1L << 25);
-	carry0 = (h0 + (1L << 25)) >> 26;
+	h9 -= Shl64(carry9, 25);
+	carry0 = Sar64(h0 + (1L << 25), 26);
 	h1 += carry0;
-	h0 -= carry0 * (1L << 26);
+	h0 -= Shl64(carry0, 26);
 
 	v[0] = (long)h0;
 	v[1] = (long)h1;
@@ -1087,40 +1127,40 @@ static void ScReduce(unsigned char *s)
 	s11 -= s18 * 683901;
 	s18 = 0;
 
-	__int64 carry6 = (s6 + (1L << 20)) >> 21;
+	__int64 carry6 = Sar64(s6 + (1L << 20), 21);
 	s7 += carry6;
-	s6 -= carry6 * (1L << 21);
-	__int64 carry8 = (s8 + (1L << 20)) >> 21;
+	s6 -= Shl64(carry6, 21);
+	__int64 carry8 = Sar64(s8 + (1L << 20), 21);
 	s9 += carry8;
-	s8 -= carry8 * (1L << 21);
-	__int64 carry10 = (s10 + (1L << 20)) >> 21;
+	s8 -= Shl64(carry8, 21);
+	__int64 carry10 = Sar64(s10 + (1L << 20), 21);
 	s11 += carry10;
-	s10 -= carry10 * (1L << 21);
-	__int64 carry12 = (s12 + (1L << 20)) >> 21;
+	s10 -= Shl64(carry10, 21);
+	__int64 carry12 = Sar64(s12 + (1L << 20), 21);
 	s13 += carry12;
-	s12 -= carry12 * (1L << 21);
-	__int64 carry14 = (s14 + (1L << 20)) >> 21;
+	s12 -= Shl64(carry12, 21);
+	__int64 carry14 = Sar64(s14 + (1L << 20), 21);
 	s15 += carry14;
-	s14 -= carry14 * (1L << 21);
-	__int64 carry16 = (s16 + (1L << 20)) >> 21;
+	s14 -= Shl64(carry14, 21);
+	__int64 carry16 = Sar64(s16 + (1L << 20), 21);
 	s17 += carry16;
-	s16 -= carry16 * (1L << 21);
+	s16 -= Shl64(carry16, 21);
 
-	__int64 carry7 = (s7 + (1L << 20)) >> 21;
+	__int64 carry7 = Sar64(s7 + (1L << 20), 21);
 	s8 += carry7;
-	s7 -= carry7 * (1L << 21);
-	__int64 carry9 = (s9 + (1L << 20)) >> 21;
+	s7 -= Shl64(carry7, 21);
+	__int64 carry9 = Sar64(s9 + (1L << 20), 21);
 	s10 += carry9;
-	s9 -= carry9 * (1L << 21);
-	__int64 carry11 = (s11 + (1L << 20)) >> 21;
+	s9 -= Shl64(carry9, 21);
+	__int64 carry11 = Sar64(s11 + (1L << 20), 21);
 	s12 += carry11;
-	s11 -= carry11 * (1L << 21);
-	__int64 carry13 = (s13 + (1L << 20)) >> 21;
+	s11 -= Shl64(carry11, 21);
+	__int64 carry13 = Sar64(s13 + (1L << 20), 21);
 	s14 += carry13;
-	s13 -= carry13 * (1L << 21);
-	__int64 carry15 = (s15 + (1L << 20)) >> 21;
+	s13 -= Shl64(carry13, 21);
+	__int64 carry15 = Sar64(s15 + (1L << 20), 21);
 	s16 += carry15;
-	s15 -= carry15 * (1L << 21);
+	s15 -= Shl64(carry15, 21);
 
 	s5 += s17 * 666643;
 	s6 += s17 * 470296;
@@ -1170,43 +1210,43 @@ static void ScReduce(unsigned char *s)
 	s5 -= s12 * 683901;
 	s12 = 0;
 
-	__int64 carry0 = (s0 + (1L << 20)) >> 21;
+	__int64 carry0 = Sar64(s0 + (1L << 20), 21);
 	s1 += carry0;
-	s0 -= carry0 * (1L << 21);
-	__int64 carry2 = (s2 + (1L << 20)) >> 21;
+	s0 -= Shl64(carry0, 21);
+	__int64 carry2 = Sar64(s2 + (1L << 20), 21);
 	s3 += carry2;
-	s2 -= carry2 * (1L << 21);
-	__int64 carry4 = (s4 + (1L << 20)) >> 21;
+	s2 -= Shl64(carry2, 21);
+	__int64 carry4 = Sar64(s4 + (1L << 20), 21);
 	s5 += carry4;
-	s4 -= carry4 * (1L << 21);
-	carry6 = (s6 + (1L << 20)) >> 21;
+	s4 -= Shl64(carry4, 21);
+	carry6 = Sar64(s6 + (1L << 20), 21);
 	s7 += carry6;
-	s6 -= carry6 * (1L << 21);
-	carry8 = (s8 + (1L << 20)) >> 21;
+	s6 -= Shl64(carry6, 21);
+	carry8 = Sar64(s8 + (1L << 20), 21);
 	s9 += carry8;
-	s8 -= carry8 * (1L << 21);
-	carry10 = (s10 + (1L << 20)) >> 21;
+	s8 -= Shl64(carry8, 21);
+	carry10 = Sar64(s10 + (1L << 20), 21);
 	s11 += carry10;
-	s10 -= carry10 * (1L << 21);
+	s10 -= Shl64(carry10, 21);
 
-	__int64 carry1 = (s1 + (1L << 20)) >> 21;
+	__int64 carry1 = Sar64(s1 + (1L << 20), 21);
 	s2 += carry1;
-	s1 -= carry1 * (1L << 21);
-	__int64 carry3 = (s3 + (1L << 20)) >> 21;
+	s1 -= Shl64(carry1, 21);
+	__int64 carry3 = Sar64(s3 + (1L << 20), 21);
 	s4 += carry3;
-	s3 -= carry3 * (1L << 21);
-	__int64 carry5 = (s5 + (1L << 20)) >> 21;
+	s3 -= Shl64(carry3, 21);
+	__int64 carry5 = Sar64(s5 + (1L << 20), 21);
 	s6 += carry5;
-	s5 -= carry5 * (1L << 21);
-	carry7 = (s7 + (1L << 20)) >> 21;
+	s5 -= Shl64(carry5, 21);
+	carry7 = Sar64(s7 + (1L << 20), 21);
 	s8 += carry7;
-	s7 -= carry7 * (1L << 21);
-	carry9 = (s9 + (1L << 20)) >> 21;
+	s7 -= Shl64(carry7, 21);
+	carry9 = Sar64(s9 + (1L << 20), 21);
 	s10 += carry9;
-	s9 -= carry9 * (1L << 21);
-	carry11 = (s11 + (1L << 20)) >> 21;
+	s9 -= Shl64(carry9, 21);
+	carry11 = Sar64(s11 + (1L << 20), 21);
 	s12 += carry11;
-	s11 -= carry11 * (1L << 21);
+	s11 -= Shl64(carry11, 21);
 
 	s0 += s12 * 666643;
 	s1 += s12 * 470296;
@@ -1216,42 +1256,42 @@ static void ScReduce(unsigned char *s)
 	s5 -= s12 * 683901;
 	s12 = 0;
 
-	carry0 = s0 >> 21;
+	carry0 = Sar64(s0, 21);
 	s1 += carry0;
-	s0 -= carry0 * (1L << 21);
-	carry1 = s1 >> 21;
+	s0 -= Shl64(carry0, 21);
+	carry1 = Sar64(s1, 21);
 	s2 += carry1;
-	s1 -= carry1 * (1L << 21);
-	carry2 = s2 >> 21;
+	s1 -= Shl64(carry1, 21);
+	carry2 = Sar64(s2, 21);
 	s3 += carry2;
-	s2 -= carry2 * (1L << 21);
-	carry3 = s3 >> 21;
+	s2 -= Shl64(carry2, 21);
+	carry3 = Sar64(s3, 21);
 	s4 += carry3;
-	s3 -= carry3 * (1L << 21);
-	carry4 = s4 >> 21;
+	s3 -= Shl64(carry3, 21);
+	carry4 = Sar64(s4, 21);
 	s5 += carry4;
-	s4 -= carry4 * (1L << 21);
-	carry5 = s5 >> 21;
+	s4 -= Shl64(carry4, 21);
+	carry5 = Sar64(s5, 21);
 	s6 += carry5;
-	s5 -= carry5 * (1L << 21);
-	carry6 = s6 >> 21;
+	s5 -= Shl64(carry5, 21);
+	carry6 = Sar64(s6, 21);
 	s7 += carry6;
-	s6 -= carry6 * (1L << 21);
-	carry7 = s7 >> 21;
+	s6 -= Shl64(carry6, 21);
+	carry7 = Sar64(s7, 21);
 	s8 += carry7;
-	s7 -= carry7 * (1L << 21);
-	carry8 = s8 >> 21;
+	s7 -= Shl64(carry7, 21);
+	carry8 = Sar64(s8, 21);
 	s9 += carry8;
-	s8 -= carry8 * (1L << 21);
-	carry9 = s9 >> 21;
+	s8 -= Shl64(carry8, 21);
+	carry9 = Sar64(s9, 21);
 	s10 += carry9;
-	s9 -= carry9 * (1L << 21);
-	carry10 = s10 >> 21;
+	s9 -= Shl64(carry9, 21);
+	carry10 = Sar64(s10, 21);
 	s11 += carry10;
-	s10 -= carry10 * (1L << 21);
-	carry11 = s11 >> 21;
+	s10 -= Shl64(carry10, 21);
+	carry11 = Sar64(s11, 21);
 	s12 += carry11;
-	s11 -= carry11 * (1L << 21);
+	s11 -= Shl64(carry11, 21);
 
 	s0 += s12 * 666643;
 	s1 += s12 * 470296;
@@ -1261,39 +1301,39 @@ static void ScReduce(unsigned char *s)
 	s5 -= s12 * 683901;
 	s12 = 0;
 
-	carry0 = s0 >> 21;
+	carry0 = Sar64(s0, 21);
 	s1 += carry0;
-	s0 -= carry0 * (1L << 21);
-	carry1 = s1 >> 21;
+	s0 -= Shl64(carry0, 21);
+	carry1 = Sar64(s1, 21);
 	s2 += carry1;
-	s1 -= carry1 * (1L << 21);
-	carry2 = s2 >> 21;
+	s1 -= Shl64(carry1, 21);
+	carry2 = Sar64(s2, 21);
 	s3 += carry2;
-	s2 -= carry2 * (1L << 21);
-	carry3 = s3 >> 21;
+	s2 -= Shl64(carry2, 21);
+	carry3 = Sar64(s3, 21);
 	s4 += carry3;
-	s3 -= carry3 * (1L << 21);
-	carry4 = s4 >> 21;
+	s3 -= Shl64(carry3, 21);
+	carry4 = Sar64(s4, 21);
 	s5 += carry4;
-	s4 -= carry4 * (1L << 21);
-	carry5 = s5 >> 21;
+	s4 -= Shl64(carry4, 21);
+	carry5 = Sar64(s5, 21);
 	s6 += carry5;
-	s5 -= carry5 * (1L << 21);
-	carry6 = s6 >> 21;
+	s5 -= Shl64(carry5, 21);
+	carry6 = Sar64(s6, 21);
 	s7 += carry6;
-	s6 -= carry6 * (1L << 21);
-	carry7 = s7 >> 21;
+	s6 -= Shl64(carry6, 21);
+	carry7 = Sar64(s7, 21);
 	s8 += carry7;
-	s7 -= carry7 * (1L << 21);
-	carry8 = s8 >> 21;
+	s7 -= Shl64(carry7, 21);
+	carry8 = Sar64(s8, 21);
 	s9 += carry8;
-	s8 -= carry8 * (1L << 21);
-	carry9 = s9 >> 21;
+	s8 -= Shl64(carry8, 21);
+	carry9 = Sar64(s9, 21);
 	s10 += carry9;
-	s9 -= carry9 * (1L << 21);
-	carry10 = s10 >> 21;
+	s9 -= Shl64(carry9, 21);
+	carry10 = Sar64(s10, 21);
 	s11 += carry10;
-	s10 -= carry10 * (1L << 21);
+	s10 -= Shl64(carry10, 21);
 
 	s[0] = (unsigned char)(s0 >> 0);
 	s[1] = (unsigned char)(s0 >> 8);

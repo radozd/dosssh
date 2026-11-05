@@ -18,10 +18,6 @@
 	along with DOSSSH. If not, see <https://www.gnu.org/licenses/>.
 */
 
-/* Disk contents and the volume serial are NOT assumed to be secret.
- * Timing variation may contain entropy on physical hard disks, but
- * there is no portable lower bound for CF adapters or DOS emulators. */
-
 #ifndef DOSSSH_SSHENT_H
 #define DOSSSH_SSHENT_H
 

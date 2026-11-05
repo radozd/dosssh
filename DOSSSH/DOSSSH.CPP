@@ -155,9 +155,31 @@ static UiScreen g_screen;
 #include "UIAPP.CPP"
 static UiApp g_app;
 
+unsigned int Cpu386();
+#pragma aux Cpu386 = \
+    "pushf"               \
+    "pop bx"              \
+    "mov ax, bx"          \
+    "xor ax, 4000h"       \
+    "push ax"             \
+    "popf"                \
+    "pushf"               \
+    "pop ax"              \
+    "xor ax, bx"          \
+    "and ax, 4000h"       \
+    "push bx"             \
+    "popf"                \
+    value [ax]            \
+    modify exact [ax bx] nomemory;
+
 int main(int argc, char *argv[])
 {
 	printf("DOSSSH by Konstantin Bortnikov (radozd@ya.ru) (C)opyright 2026\nVersion: " DOSSSH_VERSION ", " __DATE__ "\n");
+	if( !Cpu386() )
+	{
+		printf("DOSSSH requires 80386 or newer CPU.\n");
+		return 1;
+	}
 
 	if( !ParseArgs(argc, argv) )
 	{

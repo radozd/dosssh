@@ -68,15 +68,15 @@ void DebugStopped()
 	}
 }
 
-/* INT 1Ch is chained by mTCP. Keep its screen writer independent of the
- * network and of stack-allocated LongOp objects. No DOS/BIOS/CRT calls in ISR. */
+// INT 1Ch is chained by mTCP. Keep its screen writer independent of the
+// network and of stack-allocated LongOp objects. No DOS/BIOS/CRT calls in ISR.
 static LongOp *g_currentOp = NULL;
 static bool g_statusVisible = false;
 
 static volatile unsigned long g_timerTicks = 0;
 static volatile unsigned long g_timerOpStart = 0;
 static volatile unsigned long g_timerShownSecond = 0;
-/* Written by normal code and read in INT 1Ch: keep the flag one byte. */
+
 static volatile unsigned char g_timerDrawEnabled = 0;
 static unsigned int g_timerVideoSegment = 0;
 static unsigned int g_timerFieldOffset = 0;
@@ -94,7 +94,7 @@ static void __interrupt __far LongOpTimer1c()
 		if( seconds != 0 && seconds != g_timerShownSecond )
 		{
 			g_timerShownSecond = seconds;
-			/* Draw the timer only after the first second, preserving video attributes. */
+
 			volatile unsigned char far *field = (volatile unsigned char far *)MK_FP(g_timerVideoSegment, g_timerFieldOffset);
 			unsigned char reversed[4];
 			int count = 0;
@@ -112,7 +112,7 @@ static void __interrupt __far LongOpTimer1c()
 	_chain_intr(g_oldTimer1c);
 }
 
-/* A 32-bit value must be read atomically on a 16-bit processor. */
+// A 32-bit value must be read atomically on a 16-bit processor.
 static unsigned long LongOpTicks()
 {
 	disable_ints();
@@ -147,7 +147,6 @@ void LongOp::StopTimer()
 
 static void LogEndStatus()
 {
-	/* Stop ISR video writes before changing the console line. */
 	g_timerDrawEnabled = 0;
 	if( g_statusVisible )
 	{
@@ -190,8 +189,6 @@ void LongOp::Show()
 	fflush(stdout);
 	g_statusVisible = true;
 
-	/* The cursor is just after the name. On the first elapsed second,
-	 * INT 1Ch writes " 1s" in video memory without moving the cursor. */
 	volatile unsigned char far *bios = (volatile unsigned char far *)MK_FP(0x40, 0);
 	unsigned int cols = (unsigned int)bios[0x4A] | ((unsigned int)bios[0x4B] << 8);
 	unsigned int col = bios[0x50];

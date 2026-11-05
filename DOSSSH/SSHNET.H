@@ -30,7 +30,7 @@ public:
 	MtcpTransport();
 	bool Start();
 	bool ConnectHost(const char *host, unsigned int port);
-	/* Positive byte count: progress; zero: would block; negative: closed/error. */
+	// Positive byte count: progress; zero: would block; negative: closed/error.
 	int ReadSome(unsigned char *dst, size_t length);
 	int WriteSome(const unsigned char *src, size_t length);
 	void Pump();
