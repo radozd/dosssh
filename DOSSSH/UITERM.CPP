@@ -356,7 +356,7 @@ private:
 	{
 		DrawIfDue();
 		if( !g_terminal.Ok() )
-			return -2; // a video allocation failure
+			return -2;
 
 		if( DrainBiosKeys() == -1 )
 			return -1;

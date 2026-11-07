@@ -49,7 +49,6 @@ private:
 	uint8_t *_savedScreen;
 	bool _valid;
 
-	// SSH terminal redraw state
 	uint8_t _lastCursorX;
 	uint8_t _lastCursorY;
 	bool _cursorKnown;

@@ -222,7 +222,6 @@ static int SshRun(const char *programPath)
 		return 1;
 	}
 
-	// One-hour automatic rekey
 	g_session.rekeyPeriodTicks = TIMER_SECS_TO_TICKS(3600);
 	if( g_userArg[0] )
 	{

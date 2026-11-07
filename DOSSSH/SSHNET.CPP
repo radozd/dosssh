@@ -54,7 +54,6 @@ MtcpTransport::MtcpTransport()
 	_driverErrors = 0;
 }
 
-/* Use the public mTCP counters; at most one poll per second. */
 void MtcpTransport::DebugStats(bool force)
 {
 	if( !DebugEnabled() )

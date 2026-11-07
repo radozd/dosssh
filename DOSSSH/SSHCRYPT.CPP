@@ -1002,7 +1002,6 @@ static void GePrecomputeOddMultiples(GroupCached *oddMultiples, const GroupP3 *p
 	}
 }
 
-/* Combine variable-base and fixed-base scalar multiples for Ed25519 verification. */
 static void GeDoubleScalarMultVarTime(GroupP2 *r, const unsigned char *a,
 	const GroupCached *oddMultiples, const unsigned char *b)
 {
@@ -1552,7 +1551,6 @@ bool SshCurve::VerifyEd25519(const unsigned char *publicKey, const unsigned char
 	hash_state.Final(h);
 	ScReduce(h);
 
-	/* Copy S (second half of signature) */
 	unsigned char scopy[32];
 	memcpy(scopy, signature + 32, 32);
 
@@ -1562,7 +1560,6 @@ bool SshCurve::VerifyEd25519(const unsigned char *publicKey, const unsigned char
 	unsigned char rcheck[32];
 	GeToBytes(rcheck, &r);
 
-	/* Compare with R (first half of signature) */
 	int bad = 0;
 	for( int i = 0; i < 32; i++ )
 		bad |= rcheck[i] ^ signature[i];
@@ -1607,11 +1604,6 @@ bool SshCrypt::Equal(const unsigned char *a, const unsigned char *b, size_t size
 		difference |= a[i] ^ b[i];
 	return difference == 0;
 }
-
-//static unsigned char SshXtime(unsigned char x)
-//{
-//	return (unsigned char)((x << 1) ^ ((x >> 7) * 0x1B));
-//}
 
 static unsigned char SshXtime(unsigned char x);
 #pragma aux SshXtime = \

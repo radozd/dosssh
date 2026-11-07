@@ -32,7 +32,6 @@
 #define SSHPKT_MAC_SIZE 32u
 #define SSHPKT_MAX_WIRE (SSHPKT_MAX_FRAME + SSHPKT_MAC_SIZE)
 
-/* Bounded nonblocking read/write with timeouts, using the concrete transport. */
 bool DosSshReadExact(unsigned char *buffer, size_t size, unsigned long timeoutTicks);
 bool DosSshWriteAll(const unsigned char *buffer, size_t size, unsigned long timeoutTicks);
 

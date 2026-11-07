@@ -230,7 +230,7 @@ unsigned char Vt100::GraphicsChar(unsigned char ch)
 {
 	switch( ch )
 	{
-	case 'q': return 196; // VT100 ACS horizontal
+	case 'q': return 196;
 	case 'x': return 179;
 	case 'l': return 218;
 	case 'k': return 191;

@@ -154,7 +154,6 @@ size_t SshPktMakeKexinit(const unsigned char cookie[16], unsigned char *p, size_
 	static const char *names[10] = {
 		"curve25519-sha256", "ssh-ed25519", "aes128-ctr", "aes128-ctr", "hmac-sha2-256",
 		"hmac-sha2-256", "none", "none", "", ""};
-	/* Reserve the complete KEXINIT before writing any of it. */
 	size_t offset = 17;
 	for( int i = 0; i < 10; i++ )
 	{
@@ -461,7 +460,7 @@ bool SshPktDeriveRekey(const unsigned char shared[32], const unsigned char H[32]
 		hash.Bytes(mpint, ksize);
 		hash.Bytes(H, 32);
 		hash.Bytes(&letter, 1);
-		hash.Bytes(sessionId, 32); /* unchanged after the first KEX */
+		hash.Bytes(sessionId, 32);
 		hash.Final(digest);
 		memcpy(targets[i], digest, lengths[i]);
 	}
@@ -738,8 +737,6 @@ bool DosSshWriteAll(const unsigned char *buf, size_t length, unsigned long timeo
 	}
 	return true;
 }
-
-/* Strict RFC 4253 KEXINIT negotiation. No trust decisions here. */
 
 /* A name-list owns its syntax rules. The byte span belongs to the input
  * packet and is only accessed after the outer KEXINIT was length-checked. */

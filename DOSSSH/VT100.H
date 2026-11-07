@@ -49,7 +49,6 @@ public:
 	size_t KeyToVt(unsigned int biosKey, unsigned int modifiers, unsigned char *out, size_t capacity);
 
 	// Dirty ranges are inclusive; consumed by the DOS video driver.
-	// The virtual screen never exceeds 132 x 50 cells.
 	const VtCell *Row(int y) const;
 	bool TakeDirtyRow(int y, int &first, int &last);
 

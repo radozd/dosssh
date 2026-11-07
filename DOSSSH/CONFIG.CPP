@@ -58,7 +58,6 @@ static bool SshDataDrive(int drive)
 
 bool SshData::Select(unsigned char launchedDrive)
 {
-	// Prefer C:; otherwise use only the drive that launched DOSSSH.
 	unsigned char drive = 2;
 	if( !SshDataDrive(3) )
 	{

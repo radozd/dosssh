@@ -31,7 +31,6 @@ bool DosOemString(const char *src, char *dst, size_t capacity);
 class DosUtf8Decoder
 {
 public:
-	// Valid Unicode code points are nonnegative.
 	enum
 	{
 		PendingByte = -1,
