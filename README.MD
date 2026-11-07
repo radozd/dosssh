@@ -34,7 +34,7 @@ suite.
 - password and keyboard-interactive authentication
 - Ed25519 host key verification, with remembered trusted keys
 - encrypted sessions with automatic rekeying
-- UTF-8 support for DOS code pages 437, 850, 852 and 866
+- UTF-8 support for DOS code pages 437, 850, 858, 852 and 866
 - optional connection debug log
 
 ## Requirements
@@ -81,12 +81,8 @@ unpredictable.
 
 On the first run, with no saved seed, DOSSSH also asks for live input:
 
-- If a Sound Blaster is configured, it first tries its recording input. Make
-  some sound at that input when prompted.
-- If there is no usable sound input, it tries irregular mouse movements and
-  their timing. A DOS mouse driver is required.
-- If the mouse is unavailable or the movement is insufficient, it asks for
-  irregularly timed keypresses (up to 32, depending on mouse activity).
+- Irregular mouse movements and their timing. A DOS mouse driver is required.
+- Irregularly timed keypresses (up to 32, depending on mouse activity).
   **Esc** cancels the setup.
 
 The collected data is mixed with SHA-256 and used to initialize an HMAC-DRBG

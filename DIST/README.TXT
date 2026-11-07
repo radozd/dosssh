@@ -18,8 +18,8 @@ Port 22 is the default. The username and password can be prompted for.
 Press Alt+X to disconnect.
 
 DOSSSH must collect random data for SSH. It mixes system and disk timing
-information; on first use it also tries Sound Blaster recording input,
-mouse movements or irregularly timed keypresses. Follow the prompts.
+information; on first use it also tries mouse movements or irregularly
+timed keypresses. Follow the prompts.
 Esc cancels the setup. See README.MD for how this works and its limits.
 
 The random seed and trusted host keys are saved in C:\DOSSSH.DAT, or on

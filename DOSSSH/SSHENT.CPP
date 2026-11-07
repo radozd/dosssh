@@ -19,7 +19,6 @@
 */
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <conio.h>
 #include <dos.h>
@@ -50,10 +49,7 @@ void SshEntropy::AddState(const unsigned char *bytes, size_t length)
 
 static void Store32(unsigned char *bytes, unsigned long value)
 {
-	bytes[0] = (unsigned char)value;
-	bytes[1] = (unsigned char)(value >> 8);
-	bytes[2] = (unsigned char)(value >> 16);
-	bytes[3] = (unsigned char)(value >> 24);
+	memcpy(bytes, &value, 4);
 }
 
 void SshEntropy::AddVolume(unsigned char drive, unsigned long serial, unsigned long totalSectors)
@@ -137,8 +133,6 @@ unsigned int SshEntReadAbsolute(unsigned int drive, const void far *packet);
 	value [ax] \
 	modify [bx cx dx si di];
 
-/* Static storage ensures both buffers have a stable far address and
-   don't consume the 16-bit DOS stack. */
 static unsigned char g_sector[512];
 static unsigned char g_packet[10];
 
@@ -181,139 +175,28 @@ static unsigned long PitStamp()
 	return (before_ticks << 16) + 65535ul - (low | (high << 8));
 }
 
-/* The BLASTER environment variable identifies a configured Sound Blaster.
- * Do not probe arbitrary ISA ports: only an explicitly configured card. */
-static unsigned int SoundBlasterBase()
+static void MouseCursor(bool visible)
 {
-	const char *settings = getenv("BLASTER");
-	if( settings == NULL )
-		return 0;
-
-	while( *settings )
-	{
-		while( *settings == ' ' || *settings == '\t' )
-			settings++;
-
-		if( *settings == 'A' || *settings == 'a' )
-		{
-			char *end_ptr;
-			unsigned long address = strtoul(settings + 1, &end_ptr, 16);
-			if( end_ptr > settings + 1 &&
-				(*end_ptr == '\0' || *end_ptr == ' ' || *end_ptr == '\t') &&
-				address >= 0x210ul && address <= 0x280ul && (address & 15ul) == 0ul )
-			{
-				return (unsigned int)address;
-			}
-		}
-		while( *settings && *settings != ' ' && *settings != '\t' )
-			settings++;
-	}
-	return 0;
+	union REGS regs;
+	memset(&regs, 0, sizeof(regs));
+	regs.x.ax = visible ? 1u : 2u;
+	int86(0x33, &regs, &regs);
 }
 
-/* DSP direct ADC (command 20h) needs neither DMA nor IRQ. Bounded polls
- * prevent a missing or nonresponding device from hanging DOSSSH. */
-static bool SoundBlasterWrite(unsigned int base, unsigned char command)
+static void ShowEntropyProgress(unsigned int percent, unsigned int &shown, bool haveMouse)
 {
-	unsigned long start_stamp = PitStamp();
-	while( (unsigned long)(PitStamp() - start_stamp) < 119318ul )
-	{
-		if( (inp(base + 0x0C) & 0x80) == 0 )
-		{
-			outp(base + 0x0C, command);
-			return true;
-		}
-	}
-	return false;
-}
+	unsigned int value = percent == 100u ? 100u : (percent / 5u) * 5u;
+	if( value == shown )
+		return;
 
-/* The ADC sample is 0..255; -1 means the DSP did not respond. */
-static int SoundBlasterRead(unsigned int base)
-{
-	unsigned long start_stamp = PitStamp();
-	while( (unsigned long)(PitStamp() - start_stamp) < 119318ul )
-	{
-		if( inp(base + 0x0E) & 0x80 )
-			return inp(base + 0x0A) & 0xFF;
-	}
-	return -1;
-}
+	if( haveMouse )
+		MouseCursor(false);
 
-static bool SoundBlasterReset(unsigned int base)
-{
-	outp(base + 0x06, 1);
-	unsigned long start_stamp = PitStamp();
-	while( (unsigned long)(PitStamp() - start_stamp) < 20ul )
-		;
-	outp(base + 0x06, 0);
-
-	return SoundBlasterRead(base) == 0xAA;
-}
-
-/* Accept recorded sound only if a changing, non-silent signal was detected.
- * A PCM signal has no proven min-entropy bound; seed hashing never treats
- * silence or repeated, constant samples as sufficient on first startup. */
-static bool CollectSoundBlaster(SshEntropy &collector)
-{
-	unsigned int base = SoundBlasterBase();
-	if( !base || !SoundBlasterReset(base) )
-		return false;
-
-	printf("Sound Blaster: make some sound at the recording input for two seconds.\n");
-	unsigned int active_samples = 0;
-	unsigned int changed_samples = 0;
-	unsigned int distinct_samples = 0;
-	unsigned char seen_samples[32];
-	memset(seen_samples, 0, sizeof(seen_samples));
-	unsigned char low_sample = 255;
-	unsigned char high_sample = 0;
-	unsigned char previous_sample = 128;
-
-	for( int i = 0; i < 384; i++ )
-	{
-		if( !SoundBlasterWrite(base, 0x20) )
-			return false;
-		int value = SoundBlasterRead(base);
-		if( value < 0 )
-			return false;
-		unsigned char sample = (unsigned char)value;
-
-		unsigned long stamp = PitStamp();
-		unsigned char event[5];
-		Store32(event, stamp);
-		event[4] = sample;
-		collector.AddState(event, sizeof(event));
-		unsigned int sample_index = (unsigned int)sample >> 3;
-		unsigned char sample_bit = (unsigned char)(1u << (sample & 7u));
-		if( (seen_samples[sample_index] & sample_bit) == 0 )
-		{
-			seen_samples[sample_index] |= sample_bit;
-			distinct_samples++;
-		}
-		if( sample < low_sample )
-			low_sample = sample;
-		if( sample > high_sample )
-			high_sample = sample;
-		if( sample < 120u || sample > 136u )
-			active_samples++;
-		if( i && ((int)sample - (int)previous_sample >= 4 || (int)previous_sample - (int)sample >= 4) )
-			changed_samples++;
-
-		previous_sample = sample;
-
-		/* Direct ADC is software-paced (~250 samples/s). */
-		while( (unsigned long)(PitStamp() - stamp) < 4000ul )
-			;
-	}
-
-	if( active_samples >= 48u && changed_samples >= 32u && distinct_samples >= 16u &&
-		(unsigned int)(high_sample - low_sample) >= 20u )
-	{
-		printf("Sound Blaster input variation collected.\n");
-		return true;
-	}
-	printf("Sound Blaster input silent or insufficient; trying the mouse.\n");
-	return false;
+	printf("\rEntropy input: %3u%%", value);
+	fflush(stdout);
+	if( haveMouse )
+		MouseCursor(true);
+	shown = value;
 }
 
 static bool ReadSector(unsigned char drive, unsigned long sectorNumber)
@@ -337,8 +220,6 @@ static unsigned char ProgramDrive(const char *programPath)
 			return (unsigned char)(letter - 'A');
 	}
 
-	/* DOS 21h/19h: AL is the *zero-based* current drive (A=0).
-	   Open Watcom 1.9 does not need getdisk() or direct.h for this. */
 	union REGS r;
 	memset(&r, 0, sizeof(r));
 	r.h.ah = 0x19;
@@ -474,8 +355,6 @@ static void CollectMachineState(SshEntropy &collector)
 	SshCrypt::Zero(clocks, sizeof(clocks));
 }
 
-/* Check the INT 33h vector without resetting an existing mouse driver.
-   Some DOS machines have no driver or only an IRET interrupt stub. */
 static bool MousePresent()
 {
 	union REGS regs;
@@ -489,128 +368,116 @@ static bool MousePresent()
 	return true;
 }
 
-/* Collect relative mouse motion (INT 33h/000Bh) and PIT intervals.
-   Simple variation checks reject stationary/fixed input but do not
-   establish a cryptographic lower bound on mouse entropy. */
-static int CollectMouse(SshEntropy &collector, unsigned int &keyEvents, unsigned int &motions)
+static bool CollectInput(SshEntropy &collector)
 {
-	if( !MousePresent() )
-		return 0;
+	bool have_mouse = false;
+	if( MousePresent() )
+	{
+		union REGS regs;
+		memset(&regs, 0, sizeof(regs));
+		int86(0x33, &regs, &regs);
+		have_mouse = regs.x.ax == 0xFFFFu;
+	}
 
-	/* A live interrupt vector alone does not initialise the mouse driver.
-	 * INT 33h AX=0 resets its motion counters and confirms availability. */
-	union REGS mouse_regs;
-	memset(&mouse_regs, 0, sizeof(mouse_regs));
-	int86(0x33, &mouse_regs, &mouse_regs);
-	if( mouse_regs.x.ax != 0xFFFFu )
-		return 0;
+	printf("Press keys and/or move the mouse until progress reaches 100%%. Esc cancels.\n");
 
-	printf("First start: move the mouse irregularly for a few seconds.\n");
-	printf("Mouse not available? Keyboard fallback will follow. Esc cancels.\n");
-	unsigned long begin = PitStamp();
-	unsigned long last = begin;
-	unsigned long last_motion = begin;
-	unsigned int events = 0;
-	unsigned int varied = 0;
-	unsigned int time_bins = 0;
-	unsigned int prev_x = 0;
-	unsigned int prev_y = 0;
+	const unsigned int required_points = 32u;
+	const unsigned long mouse_poll_interval = 12000ul;
+	const unsigned long gesture_interval = 200000ul;
+	unsigned int points = 0;
+	unsigned int shown = 101u;
+	unsigned int previous_key = 0;
+	unsigned int travel = 0;
+	int motion_dir = 0;
+	int credited_dir = 0;
+	unsigned long last_key = PitStamp();
+	unsigned long last_motion = 0;
+	unsigned long last_gesture = 0;
+	unsigned long last_poll = last_key;
 
-	for( unsigned long loop = 0; loop < 400000ul; loop++ )
+	ShowEntropyProgress(0u, shown, false);
+	if( have_mouse )
+		MouseCursor(true);
+
+	for( ;; )
 	{
 		unsigned long now = PitStamp();
-		if( now - begin >= 5ul * 1193182ul || (events == 0 && now - begin >= 2ul * 1193182ul) )
-			break;
+		unsigned int credit = 0;
 
 		if( biosIsKeyReady() )
 		{
 			unsigned int key = biosKeyRead();
 			if( (key & 255u) == 27u || (key & 255u) == 3u )
-				return -1;
-			unsigned char kb[10];
-			Store32(kb, last);
-			Store32(kb + 4, now);
-			kb[8] = (unsigned char)key;
-			kb[9] = (unsigned char)(key >> 8);
-			collector.AddState(kb, sizeof(kb));
-			keyEvents++;
+				break;
+
+			unsigned char event[10];
+			Store32(event, now);
+			Store32(event + 4, now - last_key);
+			Store16(event + 8, key);
+			collector.AddState(event, sizeof(event));
+
+			// Ignore auto-repeat
+			if( key != previous_key )
+				credit++;
+			previous_key = key;
+			last_key = now;
 		}
-		if( now - last < 4000ul )
-			continue; /* Limit mouse polling to approximately 250 Hz. */
 
-		last = now;
-		union REGS regs;
-		memset(&regs, 0, sizeof(regs));
-		regs.x.ax = 0x000B;
-		int86(0x33, &regs, &regs);
-		unsigned int dx = regs.x.cx;
-		unsigned int dy = regs.x.dx;
-		if( !dx && !dy )
-			continue;
-
-		unsigned char sample[12];
-		Store32(sample, now);
-		Store16(sample + 4, dx);
-		Store16(sample + 6, dy);
-		Store32(sample + 8, now - last_motion);
-		collector.AddState(sample, sizeof(sample));
-		last_motion = now;
-		events++;
-		motions = events;
-		if( dx != prev_x || dy != prev_y )
-			varied++;
-		time_bins |= 1u << (now & 15u);
-		prev_x = dx;
-		prev_y = dy;
-
-		if( events >= 32 && varied >= 12 && now - begin > 1193182ul )
+		if( have_mouse && (unsigned long)(now - last_poll) >= mouse_poll_interval )
 		{
-			int bins = 0;
-			for( int bit = 0; bit < 16; bit++ )
-				if( time_bins & (1u << bit) )
-					bins++;
-			if( bins >= 5 )
+			last_poll = now;
+			union REGS regs;
+			memset(&regs, 0, sizeof(regs));
+			regs.x.ax = 0x000B;
+			int86(0x33, &regs, &regs);
+			int dx = (short)regs.x.cx;
+			int dy = (short)regs.x.dx;
+			if( dx || dy )
 			{
-				printf("Mouse movement collected (statistical heuristic; not certified RNG).\n");
-				return 1;
+				unsigned char event[12];
+				Store32(event, now);
+				Store16(event + 4, regs.x.cx);
+				Store16(event + 6, regs.x.dx);
+				Store32(event + 8, now - last_motion);
+				collector.AddState(event, sizeof(event));
+				last_motion = now;
+
+				unsigned int x = dx < 0 ? (unsigned int)(-(long)dx) : (unsigned int)dx;
+				unsigned int y = dy < 0 ? (unsigned int)(-(long)dy) : (unsigned int)dy;
+				int dir = x >= y ? (dx > 0 ? 1 : -1) : (dy > 0 ? 2 : -2);
+				if( dir != motion_dir )
+				{
+					motion_dir = dir;
+					travel = 0;
+				}
+				unsigned long distance = (unsigned long)travel + x + y;
+				travel = distance >= 12ul ? 12u : (unsigned int)distance;
+
+				if( travel == 12u && (credited_dir == 0 || dir == -credited_dir) &&
+					(unsigned long)(now - last_gesture) >= gesture_interval )
+				{
+					credit += 2u;
+					credited_dir = dir;
+					last_gesture = now;
+				}
 			}
 		}
-	}
-	printf("Mouse sample incomplete; finishing with keyboard timing.\n");
-	return 0;
-}
 
-/* Keyboard timing is the last fallback for the first initialization.
-   Fewer events are needed when mouse movement was also observed. */
-static bool CollectKeys(SshEntropy &collector, int required)
-{
-	if( !required )
-		return true;
-
-	printf("Press %d irregularly timed keys (one-time setup). Esc cancels.\n", required);
-	for( int i = 0; i < required; i++ )
-	{
-		unsigned long before_tick = PitStamp();
-		while( !biosIsKeyReady() )
-			;
-		unsigned int key = biosKeyRead();
-		if( (key & 255u) == 27u || (key & 255u) == 3u )
-			return false;
-
-		unsigned char event[10];
-		Store32(event, before_tick);
-		Store32(event + 4, PitStamp());
-		event[8] = (unsigned char)key;
-		event[9] = (unsigned char)(key >> 8);
-		collector.AddState(event, sizeof(event));
-		if( (i + 1) % 8 == 0 )
+		if( credit )
 		{
-			printf(".");
-			fflush(stdout);
+			points += credit;
+			if( points >= required_points )
+				break;
+			ShowEntropyProgress(points * 100u / required_points, shown, have_mouse);
 		}
 	}
+
+	if( have_mouse )
+		MouseCursor(false);
+	if( points >= required_points )
+		ShowEntropyProgress(100u, shown, false);
 	printf("\n");
-	return true;
+	return points >= required_points;
 }
 
 bool SshEntropy::Initialize(SSHCRYPT_RNG &rng, const char *programPath)
@@ -640,21 +507,9 @@ bool SshEntropy::Initialize(SSHCRYPT_RNG &rng, const char *programPath)
 	if( !have_seed )
 	{
 		/* Cloned disk images and passive machine state can be reproduced.
-		 * Try live audio, then an initialized mouse, then keyboard timing. */
-		if( !CollectSoundBlaster(collector) )
-		{
-			unsigned int key_count = 0;
-			unsigned int motions = 0;
-			int mouse_result = CollectMouse(collector, key_count, motions);
-			if( mouse_result < 0 )
-				goto done;
-			if( mouse_result == 0 )
-			{
-				int target = motions >= 32u ? 16 : (motions >= 16u ? 24 : 32);
-				if( key_count < (unsigned int)target && !CollectKeys(collector, target - (int)key_count) )
-					goto done;
-			}
-		}
+		 * Collect live mouse and keyboard input before first use. */
+		if( !CollectInput(collector) )
+			goto done;
 	}
 	collector.Final(mixed_seed);
 	rng.Init(mixed_seed);
