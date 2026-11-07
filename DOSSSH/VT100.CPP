@@ -32,13 +32,14 @@ uint16_t VtCell::ScreenChar(bool bw) const
 {
 	if( bw )
 	{
+		uint16_t attr = 0x07;
 		if( flags & VT_REVERSE )
-			return 0x70;
-		if( flags & VT_UNDERLINE )
-			return 0x01;
-		if( (fg & 8) || (flags & VT_BOLD) )
-			return 0x0F;
-		return 0x07;
+			attr = 0x70;
+		else if( flags & VT_UNDERLINE )
+			attr = 0x01;
+		else if( (fg & 8) || (flags & VT_BOLD) )
+			attr = 0x0F;
+		return (attr << 8) | ch;
 	}
 
 	unsigned char fg2 = fg & 15;
