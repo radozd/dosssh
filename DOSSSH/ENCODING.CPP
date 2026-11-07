@@ -134,43 +134,22 @@ static const unsigned short g_cp866_to_unicode[0x80] =
 	0x00B0, 0x2219, 0x00B7, 0x221A, 0x2116, 0x00A4, 0x25A0, 0x00A0
 };
 
-static unsigned OemCp437ToUnicode(unsigned char c)
+static const unsigned short *DosOemTable()
 {
-	if( c < 0x80 )
-		return c;
-	return g_cp437_to_unicode[c - 0x80];
-}
-
-static unsigned OemCp850ToUnicode(unsigned char c)
-{
-	if( c < 0x80 )
-		return c;
-	return g_cp850_to_unicode[c - 0x80];
-}
-
-static unsigned OemCp852ToUnicode(unsigned char c)
-{
-	if( c < 0x80 )
-		return c;
-	return g_cp852_to_unicode[c - 0x80];
-}
-
-static unsigned OemCp866ToUnicode(unsigned char c)
-{
-	if( c < 0x80 )
-		return c;
-	return g_cp866_to_unicode[c - 0x80];
+	switch( g_dosCodePage )
+	{
+	case 850: return g_cp850_to_unicode;
+	case 852: return g_cp852_to_unicode;
+	case 866: return g_cp866_to_unicode;
+	default:  return g_cp437_to_unicode;
+	}
 }
 
 static unsigned DosOemUnicode(unsigned char ch)
 {
-	switch( g_dosCodePage )
-	{
-	case 850: return OemCp850ToUnicode(ch);
-	case 852: return OemCp852ToUnicode(ch);
-	case 866: return OemCp866ToUnicode(ch);
-	default:  return OemCp437ToUnicode(ch);
-	}
+	if( ch < 0x80 )
+		return ch;
+	return DosOemTable()[ch - 0x80];
 }
 
 unsigned char DosUnicodeOem(unsigned long ch)
@@ -190,13 +169,7 @@ unsigned char DosUnicodeOem(unsigned long ch)
 			return 241;
 	}
 
-	const unsigned short *table = g_cp437_to_unicode;
-	switch( g_dosCodePage )
-	{
-	case 850: table = g_cp850_to_unicode; break;
-	case 852: table = g_cp852_to_unicode; break;
-	case 866: table = g_cp866_to_unicode; break;
-	}
+	const unsigned short *table = DosOemTable();
 
 	for( int i = 0; i < 128; i++ )
 		if( table[i] == ch )

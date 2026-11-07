@@ -160,13 +160,12 @@ bool MtcpTransport::Start()
 
 bool MtcpTransport::ConnectHost(const char *host, unsigned int port)
 {
-	if( !_stackStarted || host == NULL || strlen(host) >= 128u )
+	if( !_stackStarted )
 		return false;
 
 	IpAddr_t address;
-	int8_t rc;
 	Log('N', "DNS %s:%u", host, port);
-	rc = Dns::resolve(host, address, 1);
+	int8_t rc = Dns::resolve(host, address, 1);
 	if( rc != 0 && rc != 1 )
 	{
 		if( rc == -2 )
@@ -178,9 +177,6 @@ bool MtcpTransport::ConnectHost(const char *host, unsigned int port)
 		return false;
 	}
 
-	/* Match the mTCP FTP/FTP2P resolver: during a DNS lookup, drive
-	 * packets, ARP and DNS retransmissions, not the TCP socket loop.
-	 * Dns::drivePendingQuery() owns the retry and timeout policy. */
 	while( Dns::isQueryPending() && !g_cancelled )
 	{
 		PACKET_PROCESS_SINGLE;

@@ -64,19 +64,17 @@ static char g_username[129];
 /* ------------------------------------------------------------------------- */
 static bool ParseHostPort(const char *src)
 {
-	char tmp[HOSTNAME_MAX_LEN];
-	if( strlen(src) >= sizeof(tmp) )
+	size_t length = strlen(src);
+	if( length >= sizeof(g_hostArg) )
 		return false;
-
-	CopyTrunc(tmp, sizeof(tmp), src);
 
 	g_portArg = SSH_DEFAULT_PORT;
 
-	char *colon = strrchr(tmp, ':');
+	const char *colon = strrchr(src, ':');
 	if( colon != NULL )
 	{
-		char *p = colon + 1;
-		if( *p == '\0' )
+		const char *p = colon + 1;
+		if( colon == src || *p == '\0' )
 			return false;
 
 		while( *p != '\0' )
@@ -90,15 +88,15 @@ static bool ParseHostPort(const char *src)
 		if( val <= 0 || val > 65535 )
 			return false;
 
-		*colon = '\0';
-		if( tmp[0] == '\0' )
-			return false;
-
+		length = (size_t)(colon - src);
 		g_portArg = (uint16_t)val;
 	}
 
-	CopyTrunc(g_hostArg, sizeof(g_hostArg), tmp);
-	return g_hostArg[0] != '\0';
+	if( length == 0 )
+		return false;
+	memcpy(g_hostArg, src, length);
+	g_hostArg[length] = '\0';
+	return true;
 }
 
 static bool ParseArgs(int argc, char *argv[])

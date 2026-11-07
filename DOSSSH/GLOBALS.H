@@ -27,6 +27,9 @@
 #include "SSHNET.H"
 #include "VT100.H"
 
+#define DOSSSH_VERSION "1.2"
+#define SSHSCAN_CLIENT_ID "SSH-2.0-DOSSSH_" DOSSSH_VERSION "\r\n"
+
 #define HOSTNAME_MAX_LEN (64)
 
 class UiScreen;

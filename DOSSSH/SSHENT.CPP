@@ -482,9 +482,7 @@ static bool CollectInput(SshEntropy &collector)
 
 bool SshEntropy::Initialize(SSHCRYPT_RNG &rng, const char *programPath)
 {
-	unsigned char saved_seed[64];
-	unsigned char mixed_seed[64];
-	unsigned char next_seed[64];
+	unsigned char seed[64];
 	bool have_seed = false;
 	bool success = false;
 	SshEntropy collector;
@@ -494,13 +492,13 @@ bool SshEntropy::Initialize(SSHCRYPT_RNG &rng, const char *programPath)
 		printf("No accessible C: or program drive for DOSSSH.DAT.\n");
 		goto done;
 	}
-	if( !SshData::LoadSeed(saved_seed, have_seed) )
+	if( !SshData::LoadSeed(seed, have_seed) )
 	{
 		printf("DOSSSH.DAT is corrupt or inaccessible; refusing to overwrite state.\n");
 		goto done;
 	}
 	if( have_seed )
-		collector.AddState(saved_seed, sizeof(saved_seed));
+		collector.AddState(seed, sizeof(seed));
 
 	CollectMachineState(collector);
 	CollectDisk(collector, SshData::Drive(), have_seed ? 4 : 24);
@@ -511,10 +509,10 @@ bool SshEntropy::Initialize(SSHCRYPT_RNG &rng, const char *programPath)
 		if( !CollectInput(collector) )
 			goto done;
 	}
-	collector.Final(mixed_seed);
-	rng.Init(mixed_seed);
-	rng.Generate(next_seed, sizeof(next_seed));
-	if( !SshData::RotateSeed(next_seed) )
+	collector.Final(seed);
+	rng.Init(seed);
+	rng.Generate(seed, sizeof(seed));
+	if( !SshData::RotateSeed(seed) )
 	{
 		printf("DOSSSH.DAT update failed; refusing SSH connection.\n");
 		goto done;
@@ -522,9 +520,7 @@ bool SshEntropy::Initialize(SSHCRYPT_RNG &rng, const char *programPath)
 	success = true;
 
 done:
-	SshCrypt::Zero(saved_seed, sizeof(saved_seed));
-	SshCrypt::Zero(mixed_seed, sizeof(mixed_seed));
-	SshCrypt::Zero(next_seed, sizeof(next_seed));
+	SshCrypt::Zero(seed, sizeof(seed));
 	if( !success )
 		rng.Clear();
 	return success;
