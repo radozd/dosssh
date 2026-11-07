@@ -25,7 +25,26 @@
 #include "ENCODING.H"
 #include "UTIL.H"
 
-static const char g_ansiToEga[8] = {0, 4, 2, 6, 1, 5, 3, 7};
+static const char g_ansiToEga[8] = { 0, 4, 2, 6, 1, 5, 3, 7 };
+
+uint16_t VtCell::ScreenChar(bool bw) const
+{
+	if( bw )
+	{
+		if( flags & VT_REVERSE )
+			return 0x70;
+		if( flags & VT_UNDERLINE )
+			return 0x01;
+		if( (fg & 8) || (flags & VT_BOLD) )
+			return 0x0F;
+		return 0x07;
+	}
+
+	unsigned char fg2 = fg & 15;
+	unsigned char bg2 = bg & 7;
+	uint16_t val = flags & VT_REVERSE ? ((fg2 & 7) << 4) | bg2 : (bg2 << 4) | fg2;
+	return (val << 8) | ch;
+}
 
 Vt100::Vt100()
 {
@@ -439,6 +458,7 @@ void Vt100::Csi(char finalByte)
 		_screenState.pendingWrap = false;
 		return;
 	}
+
 	int n = Param(0, 1);
 	switch( finalByte )
 	{
@@ -758,134 +778,206 @@ void Vt100::Feed(const unsigned char *bytes, size_t size)
 	}
 }
 
-unsigned char DosColor(const VtCell &cell, bool bw)
+static size_t CopyKeySequence(const char *sequence, unsigned char *out, size_t capacity)
 {
-	if( bw )
-	{
-		if( cell.flags & VT_REVERSE )
-			return 0x70;
-		if( cell.flags & VT_UNDERLINE )
-			return 0x01;
-		if( (cell.fg & 8) || (cell.flags & VT_BOLD) )
-			return 0x0F;
-		return 0x07;
-	}
-
-	unsigned char fg = cell.fg & 15;
-	unsigned char bg = cell.bg & 7;
-	if( cell.flags & VT_REVERSE )
-		return (unsigned char)((fg & 7) << 4 | bg);
-	return (unsigned char)(bg << 4 | fg);
+	size_t length = strlen(sequence);
+	if( length > capacity )
+		return 0;
+	memcpy(out, sequence, length);
+	return length;
 }
 
-/* BIOS keys to xterm/VT100 sequences. F1-F4 use VT100 PF sequences. */
-
-size_t KeyToVt(unsigned int biosKey, unsigned char *out, size_t capacity, bool applicationCursor)
+static unsigned int KeyModifierParameter(unsigned int modifiers)
 {
-	const char *s = NULL;
+	return 1u + ((modifiers & VT_KEY_SHIFT) ? 1u : 0u) +
+		((modifiers & VT_KEY_ALT) ? 2u : 0u) +
+		((modifiers & VT_KEY_CTRL) ? 4u : 0u);
+}
+
+static int FunctionKeyNumber(int scan, unsigned int &modifiers)
+{
+	// F1-F10: unmodified, Shift, Ctrl and Alt use consecutive blocks.
+	if( scan >= 0x3B && scan <= 0x44 )
+		return scan - 0x3B + 1;
+	if( scan >= 0x54 && scan <= 0x5D )
+	{
+		modifiers |= VT_KEY_SHIFT;
+		return scan - 0x54 + 1;
+	}
+	if( scan >= 0x5E && scan <= 0x67 )
+	{
+		modifiers |= VT_KEY_CTRL;
+		return scan - 0x5E + 1;
+	}
+	if( scan >= 0x68 && scan <= 0x71 )
+	{
+		modifiers |= VT_KEY_ALT;
+		return scan - 0x68 + 1;
+	}
+
+	// F11/F12 use individual scan-code pairs on enhanced keyboards.
+	if( scan >= 0x85 && scan <= 0x8C )
+	{
+		if( scan >= 0x87 && scan <= 0x88 )
+			modifiers |= VT_KEY_SHIFT;
+		if( scan >= 0x89 && scan <= 0x8A )
+			modifiers |= VT_KEY_CTRL;
+		if( scan >= 0x8B )
+			modifiers |= VT_KEY_ALT;
+		return 11 + ((scan - 0x85) & 1);
+	}
+	return 0;
+}
+
+static size_t FunctionKeySequence(int functionKey, unsigned int modifiers, unsigned char *out, size_t capacity)
+{
+	static const unsigned char tilde[12] = { 0, 0, 0, 0, 15, 17, 18, 19, 20, 21, 23, 24 };
+	unsigned int parameter = KeyModifierParameter(modifiers);
+	char sequence[24];
+
+	if( functionKey <= 4 )
+	{
+		if( parameter == 1u )
+			SprintfTrunc(sequence, sizeof(sequence), "\033O%c", 'P' + functionKey - 1);
+		else
+			SprintfTrunc(sequence, sizeof(sequence), "\033[1;%u%c", parameter, 'P' + functionKey - 1);
+	}
+	else if( parameter == 1u )
+		SprintfTrunc(sequence, sizeof(sequence), "\033[%u~", (unsigned int)tilde[functionKey - 1]);
+	else
+		SprintfTrunc(sequence, sizeof(sequence), "\033[%u;%u~", (unsigned int)tilde[functionKey - 1], parameter);
+
+	return CopyKeySequence(sequence, out, capacity);
+}
+
+static bool NavigationKey(int scan, char &cursor, int &tilde, unsigned int &modifiers)
+{
+	cursor = 0;
+	tilde = 0;
+	switch( scan )
+	{
+	case 0x48: cursor = 'A'; break; // Up
+	case 0x50: cursor = 'B'; break; // Down
+	case 0x4D: cursor = 'C'; break; // Right
+	case 0x4B: cursor = 'D'; break; // Left
+	case 0x47: cursor = 'H'; break; // Home
+	case 0x4F: cursor = 'F'; break; // End
+	case 0x52: tilde = 2; break; // Insert
+	case 0x53: tilde = 3; break; // Delete
+	case 0x49: tilde = 5; break; // PageUp
+	case 0x51: tilde = 6; break; // PageDown
+
+	case 0x8D: cursor = 'A'; modifiers |= VT_KEY_CTRL; break;
+	case 0x91: cursor = 'B'; modifiers |= VT_KEY_CTRL; break;
+	case 0x73: cursor = 'D'; modifiers |= VT_KEY_CTRL; break;
+	case 0x74: cursor = 'C'; modifiers |= VT_KEY_CTRL; break;
+	case 0x77: cursor = 'H'; modifiers |= VT_KEY_CTRL; break;
+	case 0x75: cursor = 'F'; modifiers |= VT_KEY_CTRL; break;
+	case 0x84: tilde = 5; modifiers |= VT_KEY_CTRL; break;
+	case 0x76: tilde = 6; modifiers |= VT_KEY_CTRL; break;
+	case 0x92: tilde = 2; modifiers |= VT_KEY_CTRL; break;
+	case 0x93: tilde = 3; modifiers |= VT_KEY_CTRL; break;
+
+	case 0x98: cursor = 'A'; modifiers |= VT_KEY_ALT; break;
+	case 0xA0: cursor = 'B'; modifiers |= VT_KEY_ALT; break;
+	case 0x9D: cursor = 'C'; modifiers |= VT_KEY_ALT; break;
+	case 0x9B: cursor = 'D'; modifiers |= VT_KEY_ALT; break;
+	case 0x97: cursor = 'H'; modifiers |= VT_KEY_ALT; break;
+	case 0x9F: cursor = 'F'; modifiers |= VT_KEY_ALT; break;
+	case 0x99: tilde = 5; modifiers |= VT_KEY_ALT; break;
+	case 0xA1: tilde = 6; modifiers |= VT_KEY_ALT; break;
+	case 0xA2: tilde = 2; modifiers |= VT_KEY_ALT; break;
+	case 0xA3: tilde = 3; modifiers |= VT_KEY_ALT; break;
+	}
+	return cursor != 0 || tilde != 0;
+}
+
+static size_t NavigationKeySequence(char cursor, int tilde, unsigned int modifiers, bool applicationCursor, unsigned char *out, size_t capacity)
+{
+	unsigned int parameter = KeyModifierParameter(modifiers);
+	char sequence[24];
+
+	if( cursor )
+	{
+		if( parameter > 1u )
+			SprintfTrunc(sequence, sizeof(sequence), "\033[1;%u%c", parameter, cursor);
+		else
+			SprintfTrunc(sequence, sizeof(sequence), "\033%c%c", applicationCursor ? 'O' : '[', cursor);
+	}
+	else if( parameter > 1u )
+		SprintfTrunc(sequence, sizeof(sequence), "\033[%d;%u~", tilde, parameter);
+	else
+		SprintfTrunc(sequence, sizeof(sequence), "\033[%d~", tilde);
+	return CopyKeySequence(sequence, out, capacity);
+}
+
+static char AltScanAscii(int scan)
+{
+	// Alt+key codes identify US-PC physical key positions, not a DOS layout.
+	if( scan >= 0x10 && scan <= 0x19 )
+		return "qwertyuiop"[scan - 0x10];
+	if( scan >= 0x1E && scan <= 0x26 )
+		return "asdfghjkl"[scan - 0x1E];
+	if( scan >= 0x2C && scan <= 0x32 )
+		return "zxcvbnm"[scan - 0x2C];
+	if( scan >= 0x78 && scan <= 0x81 )
+		return "1234567890"[scan - 0x78];
+
+	switch( scan )
+	{
+	case 0x01: return 27;  // Alt+Esc
+	case 0x0E: return 127; // Alt+Backspace (Meta-Backspace)
+	case 0x1A: return '[';
+	case 0x1B: return ']';
+	case 0x27: return ';';
+	case 0x28: return '\'';
+	case 0x29: return '`';
+	case 0x2B: return '\\';
+	case 0x33: return ',';
+	case 0x34: return '.';
+	case 0x35: return '/';
+	case 0x82: return '-';
+	case 0x83: return '=';
+	}
+	return 0;
+}
+
+size_t Vt100::KeyToVt(unsigned int biosKey, unsigned int modifiers, unsigned char *out, size_t capacity)
+{
 	int scan = (biosKey >> 8) & 255;
 	int ascii = biosKey & 255;
-	// BIOS AH=0 may return either 00 or E0 for an extended key.
 	if( ascii == 0 || ascii == 0xE0 )
 	{
-		switch( scan )
+		unsigned int key_mod = modifiers & (VT_KEY_SHIFT | VT_KEY_ALT | VT_KEY_CTRL);
+		int key_func = FunctionKeyNumber(scan, key_mod);
+		if( key_func )
+			return FunctionKeySequence(key_func, key_mod, out, capacity);
+
+		char cursor;
+		int tilde;
+		if( NavigationKey(scan, cursor, tilde, key_mod) )
+			return NavigationKeySequence(cursor, tilde, key_mod, _screenState.cursorApplication, out, capacity);
+
+		if( scan == 0x0F ) // Shift+Tab
+			return CopyKeySequence("\033[Z", out, capacity);
+
+		// Do not infer Alt from printable ASCII: AltGr and Alt+numpad must
+		// remain ordinary characters. BIOS Alt scans have zero ASCII.
+		char meta = ascii == 0 ? AltScanAscii(scan) : 0;
+		if( meta )
 		{
-		case 0x48:
-			s = applicationCursor ? "\033OA" : "\033[A";
-			break;
-		case 0x50:
-			s = applicationCursor ? "\033OB" : "\033[B";
-			break;
-		case 0x4B:
-			s = applicationCursor ? "\033OD" : "\033[D";
-			break;
-		case 0x4D:
-			s = applicationCursor ? "\033OC" : "\033[C";
-			break;
-		case 0x47:
-			s = applicationCursor ? "\033OH" : "\033[H";
-			break;
-		case 0x4F:
-			s = applicationCursor ? "\033OF" : "\033[F";
-			break;
-		case 0x52:
-			s = "\033[2~";
-			break;
-		case 0x53:
-			s = "\033[3~";
-			break;
-		case 0x49:
-			s = "\033[5~";
-			break;
-		case 0x51:
-			s = "\033[6~";
-			break;
-		case 0x0F: // Shift-Tab
-			s = "\033[Z";
-			break;
-		case 0x73: // Ctrl+Left
-			s = "\033[1;5D";
-			break;
-		case 0x74: // Ctrl+Right
-			s = "\033[1;5C";
-			break;
-		case 0x77: // Ctrl+Home
-			s = "\033[1;5H";
-			break;
-		case 0x75: // Ctrl+End
-			s = "\033[1;5F";
-			break;
-		case 0x3B:
-			s = "\033OP";
-			break;
-		case 0x3C:
-			s = "\033OQ";
-			break;
-		case 0x3D:
-			s = "\033OR";
-			break;
-		case 0x3E:
-			s = "\033OS";
-			break;
-		case 0x3F:
-			s = "\033[15~";
-			break;
-		case 0x40:
-			s = "\033[17~";
-			break;
-		case 0x41:
-			s = "\033[18~";
-			break;
-		case 0x42:
-			s = "\033[19~";
-			break;
-		case 0x43:
-			s = "\033[20~";
-			break;
-		case 0x44:
-			s = "\033[21~";
-			break;
-		case 0x85:
-			s = "\033[23~";
-			break;
-		case 0x86:
-			s = "\033[24~";
-			break;
+			if( (key_mod & VT_KEY_SHIFT) && meta >= 'a' && meta <= 'z' )
+				meta = (char)(meta - 'a' + 'A');
+			if( capacity < 2 )
+				return 0;
+			out[0] = 27;
+			out[1] = (unsigned char)meta;
+			return 2;
 		}
-	}
 
-	if( s != NULL )
-	{
-		size_t length = strlen(s);
-		if( length > capacity )
-			return 0;
-		memcpy(out, s, length);
-		return length;
-	}
-
-	// Unknown BIOS extended keys must not leak as OEM characters.
-	if( ascii == 0 || ascii == 0xE0 )
+		// Unknown extended keys must not leak as OEM characters.
 		return 0;
+	}
 
 	if( capacity == 0 )
 		return 0;

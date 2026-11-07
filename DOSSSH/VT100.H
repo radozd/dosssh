@@ -22,6 +22,7 @@
 #define DOSSSH_VT100_H
 
 #include <stddef.h>
+#include <stdint.h>
 #include "ENCODING.H"
 
 struct VtCell
@@ -30,14 +31,9 @@ struct VtCell
 	char fg;
 	char bg;
 	char flags;
+
+	uint16_t ScreenChar(bool bw) const;
 };
-
-#define VT_UNDERLINE (1u)
-#define VT_REVERSE (2u)
-#define VT_BOLD (4u)
-
-unsigned char DosColor(const VtCell &cell, bool bw);
-size_t KeyToVt(unsigned int biosKey, unsigned char *out, size_t capacity, bool applicationCursor = false);
 
 class Vt100
 {
@@ -49,8 +45,7 @@ public:
 	void Reset();
 	void Feed(const unsigned char *bytes, size_t size);
 	size_t ReadReply(unsigned char *out, size_t capacity);
-
-	bool CursorApplication() const { return _screenState.cursorApplication; }
+	size_t KeyToVt(unsigned int biosKey, unsigned int modifiers, unsigned char *out, size_t capacity);
 
 	// Dirty ranges are inclusive; consumed by the DOS video driver.
 	// The virtual screen never exceeds 132 x 50 cells.
@@ -69,27 +64,29 @@ private:
 	{
 		int x;
 		int y;
-		int savedX;
-		int savedY;
-		int scrollTop;
-		int scrollBottom;
 		char fg;
 		char bg;
 		char flags;
-		char savedFg;
-		char savedBg;
-		char savedFlags;
 		char charset;
-		char savedCharset;
+		bool useG1;
+
+		int scrollTop;
+		int scrollBottom;
 		char g0;
 		char g1;
-		bool useG1;
-		bool savedUseG1;
 		bool cursorVisible;
 		bool wrap;
 		bool pendingWrap;
 		bool origin;
 		bool cursorApplication;
+
+		int savedX;
+		int savedY;
+		char savedFg;
+		char savedBg;
+		char savedFlags;
+		char savedCharset;
+		bool savedUseG1;
 	};
 	VtCell *_cells;
 	VtCell *_normalCells;

@@ -39,8 +39,6 @@ static volatile bool g_cancelled = false;
 static volatile bool g_shellMode = false;
 static volatile bool g_ctrlC = false;
 
-MtcpTransport g_transport;
-
 MtcpTransport::MtcpTransport()
 {
 	_socket = NULL;
@@ -57,7 +55,7 @@ MtcpTransport::MtcpTransport()
 /* Use the public mTCP counters; at most one poll per second. */
 void MtcpTransport::DebugStats(bool force)
 {
-	if( !DebugIsOn() )
+	if( !DebugEnabled() )
 		return;
 
 	unsigned long now = Ticks();
@@ -221,9 +219,7 @@ bool MtcpTransport::ConnectHost(const char *host, unsigned int port)
 		return false;
 	}
 
-	/* The TCP source port is not a cryptographic random value. */
 	const uint16_t local_port = 20000u + (TIMER_GET_CURRENT() % 30000u);
-	/* Non-blocking mTCP connect with a 15-second timeout. */
 	rc = _socket->connectNonBlocking(local_port, address, port);
 	if( rc == TCP_RC_GOOD )
 	{
@@ -257,7 +253,7 @@ int MtcpTransport::ReadSome(unsigned char *dest, size_t length)
 {
 	if( _socket == NULL || g_cancelled || dest == NULL || length > 32767u )
 		return -1;
-	/* Nonblocking: the SSH transport pumps mTCP on would-block. */
+
 	int16_t result = _socket->recv(dest, length);
 	if( result < 0 || (result == 0 && _socket->isRemoteClosed()) )
 	{

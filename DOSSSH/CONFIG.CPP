@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "CONFIG.H"
+#include "GLOBALS.H"
 #include "SSHCRYPT.H"
 #include "SSHSCAN.H"
 #include "UTIL.H"
@@ -190,7 +191,7 @@ static void SshDataWriteBase64(const unsigned char key[51], char text[69])
 
 static bool SshDataHostName(char output[144], const char *host, unsigned int port)
 {
-	if( !host || !host[0] || port == 0 || port > 65535u )
+	if( !host || !host[0] || port == 0 )
 		return false;
 
 	int n = 0;
@@ -201,7 +202,7 @@ static bool SshDataHostName(char output[144], const char *host, unsigned int por
 	{
 		unsigned char ch = (unsigned char)host[i];
 
-		if( i >= 127 || n + 9 >= 144 || !((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == '_' || ch == ':') )
+		if( i >= 127 || !((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == '_' || ch == ':') )
 			return false;
 		output[n++] = (ch >= 'A' && ch <= 'Z') ? (char)(ch - 'A' + 'a') : (char)ch;
 	}
@@ -293,9 +294,6 @@ static bool SshDataWriteHost(FILE *file, const char *host, const unsigned char k
 static bool SshDataVerify(const char *path, unsigned char seed[64],
 	const char *lookup, const unsigned char *expectedKey, int *match, int *count)
 {
-	if( lookup && (!expectedKey || !match) )
-		return false;
-
 	FILE *file = fopen(path, "rb");
 	if( !file )
 		return false;
@@ -492,8 +490,7 @@ bool SshData::RotateSeed(const unsigned char seed[64])
 }
 
 bool SshData::KnownHost(const char *host, unsigned int port, const unsigned char *key,
-	size_t keySize, const unsigned char digest[32],
-	bool (*confirm)(void *, const char *, const char *), void *ctx)
+	size_t keySize, const unsigned char digest[32])
 {
 	char lookup[144];
 	if( keySize != 51 || !SshDataKeyValid(key) || !SshDataHostName(lookup, host, port) )
@@ -519,15 +516,9 @@ bool SshData::KnownHost(const char *host, unsigned int port, const unsigned char
 		return false;
 	}
 
-	if( !confirm )
-	{
-		SshCrypt::Zero(seed, sizeof(seed));
-		return false;
-	}
-
 	char fingerprint[52];
 	SshScanFingerprint(digest, fingerprint);
-	if( !confirm(ctx, lookup, fingerprint) )
+	if( !DosConfirmHost(lookup, fingerprint) )
 	{
 		SshCrypt::Zero(seed, sizeof(seed));
 		return false;

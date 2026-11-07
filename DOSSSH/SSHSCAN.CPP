@@ -22,13 +22,14 @@
 #include <stdio.h>
 #include <errno.h>
 #include "SSHSCAN.H"
+#include "GLOBALS.H"
 #include "SSHSHA.H"
 #include "SSHPKT.H"
 #include "DEBUG.H"
 
 static void SshScanDebugKeys(const char *phase, const SSHPKT_Keys &keys)
 {
-	if( DebugIsOn() )
+	if( DebugEnabled() )
 	{
 		Log('I', "%s AES128/HMAC256 keys", phase);
 		DebugHex("client_to_server.iv", keys.clientIV, sizeof(keys.clientIV));
@@ -40,19 +41,18 @@ static void SshScanDebugKeys(const char *phase, const SSHPKT_Keys &keys)
 	}
 }
 
-/* File-scope constant avoids COMDAT iterated-data in inline methods. */
 static const unsigned char basepoint[32] = {9};
 
-/* One fixed buffer; also accommodates the 4-byte SSH packet length. */
+// One fixed buffer; also accommodates the 4-byte SSH packet length.
 static unsigned char g_sshFrame[SSHPKT_MAX_WIRE];
-/* Hold original I_S while ECDH_REPLY overwrites the input frame. */
+// Hold original I_S while ECDH_REPLY overwrites the input frame.
 static unsigned char g_serverKex[8192];
 static unsigned char g_clientKex[512];
-/* Separate TX buffer: live RX frames may be only partially received. */
+// Separate TX buffer: live RX frames may be only partially received.
 static unsigned char g_sshTxFrame[1536];
 static unsigned char g_sshMessage[1024];
 
-/* A byte is 0..255; -1 means a timeout or transport failure. */
+// -1 means a timeout or transport failure.
 static int ReadIdentByte(unsigned long start, unsigned long deadline)
 {
 	unsigned long elapsed = (unsigned long)(g_transport.Ticks() - start);
@@ -99,20 +99,13 @@ bool SshScanSendIdent(unsigned long timeout)
 	return DosSshWriteAll((const unsigned char *)msg, sizeof(msg) - 1, timeout);
 }
 
-/* Initial key exchange owns its ephemeral secrets and the provisional
- * session.  No caller can forget the failure path: the destructor erases
- * sensitive state and a failed session even on an early return. */
 class SshInitialExchange
 {
 public:
-	SshInitialExchange(const char *serverIdent, SSHSCAN_HostTrust trust, void *trustCtx,
-		SSHCRYPT_RNG &rng, SSHSCAN_Session &session, const char **reason, unsigned long timeout)
+	SshInitialExchange(const char *serverIdent, SSHCRYPT_RNG &rng, SSHSCAN_Session &session, unsigned long timeout)
 		: _rng(rng), _session(session)
 	{
 		_serverIdent = serverIdent;
-		_trust = trust;
-		_trustCtx = trustCtx;
-		_reason = reason;
 		_timeout = timeout;
 		_sequenceOut = 0;
 		_sequenceIn = 0;
@@ -134,7 +127,7 @@ public:
 
 	bool Run()
 	{
-		SetReason("KEX failed");
+		g_sshReason = "KEX failed";
 		if( !SendKexinit() || !ReceiveKexinit() || !ExchangeEcdh() || !AuthenticateHost() || !InstallKeys() || !RequestService() )
 			return false;
 
@@ -145,18 +138,15 @@ public:
 		_session.inEpochBytes = sizeof(s_service);
 		_session.outEpochBytes = sizeof(s_service);
 		_session.lastKexTicks = g_transport.Ticks();
-		SetReason("Authenticated KEX + encrypted service accepted");
+		g_sshReason = "Authenticated KEX + encrypted service accepted";
 		_success = true;
 		return true;
 	}
 
 private:
 	const char *_serverIdent;
-	SSHSCAN_HostTrust _trust;
-	void *_trustCtx;
 	SSHCRYPT_RNG &_rng;
 	SSHSCAN_Session &_session;
-	const char **_reason;
 	unsigned long _timeout;
 	const unsigned char *_payload;
 	size_t _length;
@@ -178,16 +168,10 @@ private:
 
 	static const unsigned char s_service[17];
 
-	void SetReason(const char *message)
-	{
-		if( _reason )
-			*_reason = message;
-	}
-
 	bool SendPlain(const unsigned char *payload, size_t length)
 	{
 		size_t padding = SshPktPaddingSize(length);
-		if( padding == 0 || padding > 32 )
+		if( padding == 0 )
 			return false;
 
 		unsigned char noise[32];
@@ -227,13 +211,13 @@ private:
 		_clientKexLength = SshPktMakeKexinit(_cookie, g_clientKex, sizeof(g_clientKex));
 
 		DebugHex("initial.kex_cookie", _cookie, sizeof(_cookie));
-		SetReason("Cannot send client SSH_MSG_KEXINIT");
+		g_sshReason = "Cannot send client SSH_MSG_KEXINIT";
 		return _clientKexLength != 0 && SendPlain(g_clientKex, _clientKexLength);
 	}
 
 	bool ReceiveKexinit()
 	{
-		SetReason("Invalid server SSH_MSG_KEXINIT");
+		g_sshReason = "Invalid server SSH_MSG_KEXINIT";
 		bool found = false;
 		for( int i = 0; i < 8; i++ )
 		{
@@ -253,14 +237,14 @@ private:
 
 		memcpy(g_serverKex, _payload, _length);
 		_serverKexLength = _length;
-		int discard = DosSshNegotiateKexinit(g_serverKex, _serverKexLength, _reason);
+		int discard = DosSshNegotiateKexinit(g_serverKex, _serverKexLength);
 		if( discard < 0 )
 			return false;
 
 		Log('I', "KEX curve25519 ed25519 aes128-ctr hmac256 guess=%d", discard);
 		if( discard )
 		{
-			SetReason("Server guessed packet missing");
+			g_sshReason = "Server guessed packet missing";
 			return ReceivePlain();
 		}
 		return true;
@@ -276,11 +260,11 @@ private:
 		size_t kex_size = SshPktMakeEcdhInit(_publicKey, _ecdhInit, sizeof(_ecdhInit));
 		DebugHex("initial.x25519.private", _ephemeral, sizeof(_ephemeral));
 		DebugHex("initial.x25519.public", _publicKey, sizeof(_publicKey));
-		SetReason("Could not send SSH_MSG_KEX_ECDH_INIT");
+		g_sshReason = "Could not send SSH_MSG_KEX_ECDH_INIT";
 		if( kex_size == 0 || !SendPlain(_ecdhInit, kex_size) )
 			return false;
 
-		SetReason("Invalid SSH_MSG_KEX_ECDH_REPLY");
+		g_sshReason = "Invalid SSH_MSG_KEX_ECDH_REPLY";
 		bool found = false;
 		for( int i = 0; i < 8; i++ )
 		{
@@ -317,7 +301,7 @@ private:
 		_exchange.SetEcdh(_reply, _publicKey, _shared);
 
 		DebugHex("initial.x25519.shared_secret", _shared, sizeof(_shared));
-		SetReason("Exchange hash / X25519 shared secret invalid");
+		g_sshReason = "Exchange hash / X25519 shared secret invalid";
 		if( !_exchange.Hash(_digest) )
 			return false;
 
@@ -325,16 +309,15 @@ private:
 
 		Sha256State::Simple(_reply.HostKey(), _reply.HostKeyLength(), _hostDigest);
 		DebugHex("initial.hostkey_sha256", _hostDigest, sizeof(_hostDigest));
-		SetReason("Server Ed25519 signature verification failed");
+		g_sshReason = "Server Ed25519 signature verification failed";
 		{
 			LongOp verify_op("Ed25519 verify");
-			if( !SshCurve::VerifyEd25519(_reply.HostPublic(), _reply.Signature(),
-				_digest, sizeof(_digest)) )
+			if( !SshCurve::VerifyEd25519(_reply.HostPublic(), _reply.Signature(), _digest, sizeof(_digest)) )
 				return false;
 		}
 
-		SetReason("Server host key rejected or DOSSSH.DAT cannot be saved");
-		if( !_trust(_trustCtx, _reply.HostKey(), _reply.HostKeyLength(), _hostDigest) )
+		g_sshReason = "Server host key rejected or DOSSSH.DAT cannot be saved";
+		if( !DosTrustHost(_reply.HostKey(), _reply.HostKeyLength(), _hostDigest) )
 			return false;
 
 		// Rekey must retain the first H and the authenticated host key.
@@ -358,31 +341,30 @@ private:
 		SshPktCipherInit(_session.decrypt, _keys.serverKey, _keys.serverIV, _keys.serverMac);
 		SshCrypt::Zero(&_keys, sizeof(_keys));
 
-		SetReason("Sending SSH_MSG_NEWKEYS failed");
+		g_sshReason = "Sending SSH_MSG_NEWKEYS failed";
 		if( !SendPlain(newkeys, sizeof(newkeys)) )
 			return false;
 
-		SetReason("Missing SSH_MSG_NEWKEYS from server");
+		g_sshReason = "Missing SSH_MSG_NEWKEYS from server";
 		return ReceivePlain() && _length == 1 && _payload[0] == 21;
 	}
 
 	bool RequestService()
 	{
-		SetReason("Encrypted SSH userauth service request failed");
+		g_sshReason = "Encrypted SSH userauth service request failed";
 		if( !SshPktWriteSecure(_session.encrypt, _rng, g_sshFrame, sizeof(g_sshFrame), s_service, sizeof(s_service), _timeout, _sequenceOut) )
 			return false;
 
 		DebugPacket("send encrypted", s_service[0], sizeof(s_service), _sequenceOut - 1ul);
 
-		SetReason("Invalid SSH MAC, ciphertext, or service reply");
+		g_sshReason = "Invalid SSH MAC, ciphertext, or service reply";
 		for( int i = 0; i < 8; i++ )
 		{
 			if( !ReceiveSecure() )
 				return false;
-			if( _length == sizeof(s_service) && _payload[0] == 6 &&
-				memcmp(_payload + 1, s_service + 1, sizeof(s_service) - 1) == 0 )
+			if( _length == sizeof(s_service) && _payload[0] == 6 && memcmp(_payload + 1, s_service + 1, sizeof(s_service) - 1) == 0 )
 				return true;
-			if( !_length || (_payload[0] != 2 && _payload[0] != 4 && _payload[0] != 7) )
+			if( _payload[0] != 2 && _payload[0] != 4 && _payload[0] != 7 )
 				return false;
 		}
 		return false;
@@ -393,17 +375,14 @@ const unsigned char SshInitialExchange::s_service[17] = {
 	5, 0, 0, 0, 12, 's', 's', 'h', '-', 'u', 's', 'e', 'r', 'a', 'u', 't', 'h'
 };
 
-bool SshScanExchangeTofu(const char *serverIdent, SSHCRYPT_RNG &rng,
-	SSHSCAN_Session &session, SSHSCAN_HostTrust trust, void *trustCtx,
-	const char **reason, unsigned long timeout)
+bool SshScanExchangeTofu(const char *serverIdent, SSHCRYPT_RNG &rng, SSHSCAN_Session &session, unsigned long timeout)
 {
-	if( reason )
-		*reason = "KEX failed";
+	g_sshReason = "KEX failed";
 	session.Clear();
-	if( !serverIdent || !trust || !rng.initialized || !timeout || timeout >= 0x80000000ul )
+	if( !serverIdent || !rng.initialized || !timeout || timeout >= 0x80000000ul )
 		return false;
 
-	SshInitialExchange exchange(serverIdent, trust, trustCtx, rng, session, reason, timeout);
+	SshInitialExchange exchange(serverIdent, rng, session, timeout);
 	return exchange.Run();
 }
 
@@ -573,8 +552,7 @@ static bool SshScanSendSecure(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, SshSc
 static const unsigned char *SshScanReadSecure(SSHSCAN_Session &session,
 	size_t &size, unsigned long timeout)
 {
-	const unsigned char *payload = SshPktReadSecure(session.decrypt, g_sshFrame,
-		sizeof(g_sshFrame), size, timeout, session.inSequence);
+	const unsigned char *payload = SshPktReadSecure(session.decrypt, g_sshFrame, sizeof(g_sshFrame), size, timeout, session.inSequence);
 	if( payload == NULL )
 		return NULL;
 
@@ -583,12 +561,11 @@ static const unsigned char *SshScanReadSecure(SSHSCAN_Session &session,
 	return payload;
 }
 
-static bool SshScanGlobalRequest(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
-	const unsigned char *p, size_t length, unsigned long timeout)
+static bool SshScanGlobalRequest(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, const unsigned char *p, size_t length, unsigned long timeout)
 {
 	SshScanReader reader(p, length, 1);
-	size_t name_size;
-	const unsigned char *name = reader.String(name_size);
+	size_t sz;
+	const unsigned char *name = reader.String(sz);
 	if( name == NULL )
 		return false;
 	int want_reply = reader.Flag();
@@ -606,18 +583,16 @@ static bool SshScanGlobalRequest(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
 
 class SshScanChannel;
 static bool SshScanRekey(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
-						const unsigned char *firstKex, size_t firstKexLength,
-						SshScanChannel *channel, SSHSCAN_Output display, void *ctx,
-						const char **reason, unsigned long timeout);
+	const unsigned char *firstKex, size_t firstKexLength, SshScanChannel *channel, unsigned long timeout);
 
-static const unsigned char *SshScanReadControl(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
-							size_t &length, unsigned long timeout)
+static const unsigned char *SshScanReadControl(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, size_t &length, unsigned long timeout)
 {
 	for( int i = 0; i < 32; i++ )
 	{
 		const unsigned char *payload = SshScanReadSecure(session, length, timeout);
 		if( payload == NULL )
 			return NULL;
+
 		if( payload[0] == 2 || payload[0] == 4 || payload[0] == 7 )
 		{
 			Log('W', "Ignored control type=%d", payload[0]);
@@ -625,8 +600,10 @@ static const unsigned char *SshScanReadControl(SSHSCAN_Session &session, SSHCRYP
 		}
 		if( payload[0] == 20 )
 		{
-			if( !SshScanRekey(session, rng, payload, length, NULL, NULL, NULL, NULL, timeout) )
+			const char *previousReason = g_sshReason;
+			if( !SshScanRekey(session, rng, payload, length, NULL, timeout) )
 				return NULL;
+			g_sshReason = previousReason;
 			continue;
 		}
 		if( payload[0] == 80 )
@@ -642,16 +619,10 @@ static const unsigned char *SshScanReadControl(SSHSCAN_Session &session, SSHCRYP
 	return NULL;
 }
 
-SshAuthenticator::SshAuthenticator(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
-	const char *username, SSHSCAN_Password password, SSHSCAN_Challenge challenge,
-	void *promptCtx, const char **reason, unsigned long timeout)
+SshAuthenticator::SshAuthenticator(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, const char *username, unsigned long timeout)
 	: _session(session), _rng(rng)
 {
 	_username = username;
-	_password = password;
-	_challenge = challenge;
-	_promptCtx = promptCtx;
-	_reason = reason;
 	_timeout = timeout;
 	_methods = 0;
 	_partial = false;
@@ -666,9 +637,9 @@ SshAuthenticator::~SshAuthenticator()
 
 bool SshAuthenticator::Login()
 {
-	if( !_rng.initialized || !_username || !_password || !_timeout || _timeout >= 0x80000000ul )
+	if( !_rng.initialized || !_username || !_timeout || _timeout >= 0x80000000ul )
 	{
-		SetReason("Invalid SSH authentication parameters");
+		g_sshReason = "Invalid SSH authentication parameters";
 		return false;
 	}
 
@@ -707,7 +678,7 @@ bool SshAuthenticator::Login()
 		}
 		else
 		{
-			SetReason("No supported authentication method remains");
+			g_sshReason = "No supported authentication method remains";
 			return false;
 		}
 
@@ -718,14 +689,13 @@ bool SshAuthenticator::Login()
 
 		/* SSH_MSG_USERAUTH_FAILURE: do not report a successful partial factor
 		 * as a wrong password. The initial "none" probe is handled above. */
-		if( result == 0 && !_partial )
+		if( !_partial )
 		{
-			if( ((_methods & 1u) && password_attempts < 3) ||
-				((_methods & 2u) && interactive_attempts < 4) )
+			if( ((_methods & 1u) && password_attempts < 3) || ((_methods & 2u) && interactive_attempts < 4) )
 				Log('E', "Permission denied, please try again.");
 			else
 			{
-				SetReason("Permission denied");
+				g_sshReason = "Permission denied";
 				return false;
 			}
 		}
@@ -737,20 +707,14 @@ bool SshAuthenticator::Login()
 		}
 	}
 
-	SetReason("Authentication attempt limit reached");
+	g_sshReason = "Authentication attempt limit reached";
 	return false;
-}
-
-void SshAuthenticator::SetReason(const char *message)
-{
-	if( _reason )
-		*_reason = message;
 }
 
 bool SshAuthenticator::Complete()
 {
 	_session.authenticated = true;
-	SetReason("SSH user successfully authenticated");
+	g_sshReason = "SSH user successfully authenticated";
 	return true;
 }
 
@@ -762,14 +726,14 @@ bool SshAuthenticator::SendRequest(const char *method)
 	writer.Literal("ssh-connection");
 	writer.Literal(method);
 
-	SetReason("Cannot send SSH authentication request");
+	g_sshReason = "Cannot send SSH authentication request";
 	return SshScanSendSecure(_session, _rng, writer, _timeout);
 }
 
 bool SshAuthenticator::ValidResponse(const char *answer)
 {
 	size_t size = strlen(answer);
-	if( size >= sizeof(_secret) || !SshScanUtf8Valid((const unsigned char *)answer, size) )
+	if( !SshScanUtf8Valid((const unsigned char *)answer, size) )
 		return false;
 
 	for( size_t i = 0; i < size; i++ )
@@ -783,10 +747,9 @@ int SshAuthenticator::WaitResult(bool interactive)
 {
 	for( int i = 0; i < 32; i++ )
 	{
-		const unsigned char *packet;
+		g_sshReason = "Invalid authentication response or MAC";
 		size_t length;
-		SetReason("Invalid authentication response or MAC");
-		packet = SshScanReadControl(_session, _rng, length, _timeout);
+		const unsigned char *packet = SshScanReadControl(_session, _rng, length, _timeout);
 		if( packet == NULL )
 			return -1;
 
@@ -802,7 +765,7 @@ int SshAuthenticator::WaitResult(bool interactive)
 		}
 		if( packet[0] == 60 )
 		{
-			SetReason("Server requested an unsupported password change");
+			g_sshReason = "Server requested an unsupported password change";
 			return -1;
 		}
 		if( packet[0] != 51 )
@@ -823,15 +786,15 @@ int SshAuthenticator::WaitResult(bool interactive)
 		return 0;
 	}
 
-	SetReason("Too many SSH authentication messages");
+	g_sshReason = "Too many SSH authentication messages";
 	return -1;
 }
 
 int SshAuthenticator::SendPassword()
 {
-	SetReason("Password entry cancelled");
+	g_sshReason = "Password entry cancelled";
 	SshCrypt::Zero(_secret, sizeof(_secret));
-	if( !_password(_promptCtx, _secret, sizeof(_secret)) )
+	if( !DosPassword(_username, _secret, sizeof(_secret)) )
 		return -1;
 
 	_secret[sizeof(_secret) - 1] = '\0';
@@ -847,7 +810,7 @@ int SshAuthenticator::SendPassword()
 	writer.String((const unsigned char *)_secret, strlen(_secret));
 	SshCrypt::Zero(_secret, sizeof(_secret));
 
-	SetReason("Cannot transmit encrypted password");
+	g_sshReason = "Cannot transmit encrypted password";
 	bool sent = SshScanSendSecure(_session, _rng, writer, _timeout);
 	SshCrypt::Zero(g_sshMessage, writer.Size());
 	return sent ? WaitResult(false) : -1;
@@ -863,7 +826,7 @@ int SshAuthenticator::SendInteractive()
 	writer.Literal(""); /* language */
 	writer.Literal(""); /* submethods */
 
-	SetReason("Cannot request keyboard-interactive authentication");
+	g_sshReason = "Cannot request keyboard-interactive authentication";
 	if( !SshScanSendSecure(_session, _rng, writer, _timeout) )
 		return -1;
 
@@ -874,7 +837,7 @@ int SshAuthenticator::SendInteractive()
 			return result;
 	}
 
-	SetReason("Too many keyboard-interactive challenge rounds");
+	g_sshReason = "Too many keyboard-interactive challenge rounds";
 	return -1;
 }
 
@@ -915,9 +878,8 @@ bool SshAuthenticator::AnswerChallenge(const unsigned char *packet, size_t lengt
 		prompt[size] = '\0';
 
 		SshCrypt::Zero(_secret, sizeof(_secret));
-		SetReason("Keyboard-interactive response cancelled");
-		bool entered = _challenge ? _challenge(_promptCtx, prompt, echo, _secret, sizeof(_secret)) :
-			(!echo && _password(_promptCtx, _secret, sizeof(_secret)));
+		g_sshReason = "Keyboard-interactive response cancelled";
+		bool entered = DosChallenge(_username, prompt, echo, _secret, sizeof(_secret));
 		_secret[sizeof(_secret) - 1] = '\0';
 		if( !entered || !ValidResponse(_secret) )
 			return false;
@@ -930,7 +892,7 @@ bool SshAuthenticator::AnswerChallenge(const unsigned char *packet, size_t lengt
 	if( !reader.Done() || !writer.Good() )
 		return false;
 
-	SetReason("Cannot transmit keyboard-interactive response");
+	g_sshReason = "Cannot transmit keyboard-interactive response";
 	bool sent = SshScanSendSecure(_session, _rng, writer, _timeout);
 	SshCrypt::Zero(g_sshMessage, writer.Size());
 	return sent;
@@ -963,9 +925,11 @@ public:
 	bool CloseSent() const { return _closeSent; }
 	bool CloseReceived() const { return _closeReceived; }
 	unsigned long PendingFailures() const { return _pendingFailures; }
+
 	void MarkEof() { _eof = true; }
 	void MarkCloseSent() { _closeSent = true; }
 	void MarkCloseReceived() { _closeReceived = true; }
+
 	bool DeferFailure()
 	{
 		if( _pendingFailures == 0xFFFFFFFFul )
@@ -973,6 +937,7 @@ public:
 		_pendingFailures++;
 		return true;
 	}
+
 	void CompleteFailure() { _pendingFailures--; }
 
 	bool AddRemoteWindow(unsigned long amount)
@@ -997,7 +962,7 @@ public:
 
 	void Sent(size_t amount)
 	{
-		_remoteWindow -= amount; /* amount <= SendLimit() by construction */
+		_remoteWindow -= amount;
 	}
 
 	bool Received(size_t amount)
@@ -1024,8 +989,7 @@ private:
 	unsigned long _pendingFailures;
 };
 
-static bool SshScanSendChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
-	unsigned char message, unsigned long remote, unsigned long timeout)
+static bool SshScanSendChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, unsigned char message, unsigned long remote, unsigned long timeout)
 {
 	SshScanWriter w;
 	w.Begin(message);
@@ -1033,14 +997,12 @@ static bool SshScanSendChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
 	return SshScanSendSecure(session, rng, w, timeout);
 }
 
-static bool SshScanExpectChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
-	SshScanChannel &channel, const char **reason, unsigned long timeout)
+static bool SshScanExpectChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, SshScanChannel &channel, unsigned long timeout)
 {
 	for( int i = 0; i < 32; i++ )
 	{
-		const unsigned char *packet;
 		size_t length;
-		packet = SshScanReadControl(session, rng, length, timeout);
+		const unsigned char *packet = SshScanReadControl(session, rng, length, timeout);
 		if( packet == NULL )
 			return false;
 
@@ -1061,8 +1023,7 @@ static bool SshScanExpectChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
 			if( packet[0] == 99 )
 				return true;
 
-			if( reason != NULL )
-				*reason = "Server denied SSH channel request";
+			g_sshReason = "Server denied SSH channel request";
 			return false;
 		}
 
@@ -1072,18 +1033,113 @@ static bool SshScanExpectChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
 	return false;
 }
 
-static int SshScanHandleChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
-	SshScanChannel &channel, const unsigned char *packet, size_t length,
-	SSHSCAN_Output display, void *ctx, const char **reason, unsigned long timeout,
-	bool allowReplies = true)
+// Reject server-initiated channels; this client only opens local sessions.
+static int SshScanRejectOpen(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, SshScanReader &reader, unsigned long timeout)
+{
+	size_t sz;
+	const unsigned char *name = reader.String(sz);
+	unsigned long sender;
+	if( name == NULL || !reader.U32(sender) )
+		return -1;
+
+	SshScanWriter writer;
+	writer.Begin(92);
+	writer.U32(sender);
+	writer.U32(1); /* SSH_OPEN_ADMINISTRATIVELY_PROHIBITED */
+	writer.Literal("server channels unsupported");
+	writer.Literal("");
+	return SshScanSendSecure(session, rng, writer, timeout) ? 0 : -1;
+}
+
+static int SshScanHandleData(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, SshScanChannel &channel, SshScanReader &reader,
+	unsigned char type, unsigned long timeout, bool allowReplies)
+{
+	unsigned long data_type = 0;
+	if( type == 95 && !reader.U32(data_type) )
+		return -1;
+
+	size_t data_size;
+	const unsigned char *data = reader.String(data_size);
+	if( data == NULL || !reader.Done() || data_size > 32768u || !channel.Received(data_size) )
+		return -1;
+
+	if( type == 94 || data_type == 1ul )
+		DosTerminalOutput(data, data_size);
+
+	if( allowReplies && channel.NeedsCredit() )
+	{
+		SshScanWriter writer;
+		writer.Begin(93);
+		writer.U32(channel.Remote());
+		writer.U32(channel.Credit());
+		if( !SshScanSendSecure(session, rng, writer, timeout) )
+			return -1;
+
+		channel.Replenish();
+	}
+	return 0;
+}
+
+static int SshScanHandleRequest(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, SshScanChannel &channel, SshScanReader &reader,
+	unsigned long timeout, bool allowReplies)
+{
+	size_t name_size;
+	const unsigned char *name = reader.String(name_size);
+	if( name == NULL )
+		return -1;
+	int want_reply = reader.Flag();
+	if( want_reply < 0 )
+		return -1;
+
+	if( SshScanIs(name, name_size, "exit-status") )
+	{
+		unsigned long exit_status;
+		if( !reader.U32(exit_status) || !reader.Done() )
+			return -1;
+
+		session.exitStatus = exit_status;
+		session.exitStatusReceived = true;
+	}
+	else if( SshScanIs(name, name_size, "exit-signal") )
+	{
+		size_t sz;
+		const unsigned char *signal_name = reader.String(sz);
+		if( signal_name == NULL || sz == 0 || reader.Flag() < 0 )
+			return -1;
+		const unsigned char *error_text = reader.String(sz);
+		if( error_text == NULL )
+			return -1;
+		const unsigned char *language = reader.String(sz);
+		if( language == NULL || !reader.Done() )
+			return -1;
+
+		session.exitStatus = 128; /* generic signal failure on DOS */
+		session.exitStatusReceived = true;
+	}
+
+	if( want_reply )
+	{
+		if( allowReplies )
+		{
+			if( !SshScanSendChannel(session, rng, 100, channel.Remote(), timeout) )
+				return -1;
+		}
+		else if( !channel.DeferFailure() )
+			return -1;
+	}
+	return 0;
+}
+
+/* -1 = fatal, 0 = continue, 1 = channel closed. */
+static int SshScanHandleChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, SshScanChannel &channel,
+	const unsigned char *packet, size_t length, unsigned long timeout, bool allowReplies = true)
 {
 	const unsigned char type = packet[0];
 	SshScanReader reader(packet, length, 1);
 
 	if( type == 1 || type == 20 )
 	{
-		if( reason != NULL )
-			*reason = "SSH transport disconnected or unexpected KEX message";
+		g_sshReason = "SSH transport disconnected or unexpected KEX message";
 		return -1;
 	}
 
@@ -1096,24 +1152,8 @@ static int SshScanHandleChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
 	if( type == 80 )
 		return SshScanGlobalRequest(session, rng, packet, length, timeout) ? 0 : -1;
 
-	SshScanWriter writer;
 	if( type == 90 ) /* Reject unsolicited server-initiated channels. */
-	{
-		if( !allowReplies )
-			return -1;
-		size_t name_size;
-		const unsigned char *name = reader.String(name_size);
-		unsigned long sender;
-		if( name == NULL || !reader.U32(sender) )
-			return -1;
-
-		writer.Begin(92);
-		writer.U32(sender);
-		writer.U32(1); /* SSH_OPEN_ADMINISTRATIVELY_PROHIBITED */
-		writer.Literal("server channels unsupported");
-		writer.Literal("");
-		return SshScanSendSecure(session, rng, writer, timeout) ? 0 : -1;
-	}
+		return allowReplies ? SshScanRejectOpen(session, rng, reader, timeout) : -1;
 
 	unsigned long recipient;
 	if( type < 93 || type > 100 || !reader.U32(recipient) || recipient != 0ul )
@@ -1131,31 +1171,7 @@ static int SshScanHandleChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
 
 	case 94: /* CHANNEL_DATA */
 	case 95: /* CHANNEL_EXTENDED_DATA (stderr) */
-	{
-		unsigned long data_type = 0;
-		if( type == 95 && !reader.U32(data_type) )
-			return -1;
-
-		size_t data_size;
-		const unsigned char *data = reader.String(data_size);
-		if( data == NULL || !reader.Done() || data_size > 32768u || !channel.Received(data_size) )
-			return -1;
-
-		if( type == 94 || data_type == 1ul )
-			display(ctx, data, data_size);
-
-		if( allowReplies && channel.NeedsCredit() )
-		{
-			writer.Begin(93);
-			writer.U32(channel.Remote());
-			writer.U32(channel.Credit());
-			if( !SshScanSendSecure(session, rng, writer, timeout) )
-				return -1;
-
-			channel.Replenish();
-		}
-		return 0;
-	}
+		return SshScanHandleData(session, rng, channel, reader, type, timeout, allowReplies);
 
 	case 96: /* CHANNEL_EOF */
 		if( !reader.Done() )
@@ -1178,79 +1194,20 @@ static int SshScanHandleChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
 		return 1;
 
 	case 98: /* CHANNEL_REQUEST: exit-status / exit-signal */
-	{
-		size_t name_size;
-		const unsigned char *name = reader.String(name_size);
-		if( name == NULL )
-			return -1;
-		int want_reply = reader.Flag();
-		if( want_reply < 0 )
-			return -1;
+		return SshScanHandleRequest(session, rng, channel, reader, timeout, allowReplies);
 
-		if( SshScanIs(name, name_size, "exit-status") )
-		{
-			unsigned long exit_status;
-			if( !reader.U32(exit_status) || !reader.Done() )
-				return -1;
-
-			session.exitStatus = exit_status;
-			session.exitStatusReceived = true;
-		}
-		else if( SshScanIs(name, name_size, "exit-signal") )
-		{
-			const unsigned char *signal_name;
-			const unsigned char *error_text;
-			const unsigned char *language;
-			size_t signal_length;
-			size_t error_length;
-			size_t lang_length;
-
-			signal_name = reader.String(signal_length);
-			if( signal_name == NULL || signal_length == 0 || reader.Flag() < 0 )
-				return -1;
-			error_text = reader.String(error_length);
-			if( error_text == NULL )
-				return -1;
-			language = reader.String(lang_length);
-			if( language == NULL || !reader.Done() )
-				return -1;
-
-			session.exitStatus = 128; /* generic signal failure on DOS */
-			session.exitStatusReceived = true;
-		}
-
-		if( want_reply )
-		{
-			if( allowReplies )
-			{
-				if( !SshScanSendChannel(session, rng, 100, channel.Remote(), timeout) )
-					return -1;
-			}
-			else if( !channel.DeferFailure() )
-				return -1;
-		}
-		return 0;
-	}
-
-	default: 
+	default:
 		return -1;
 	}
 }
 
-/* Both directions retain their current keys until their respective NEWKEYS.
- * A single object owns all transient key material and erases it on exit. */
 class SshRekey
 {
 public:
-	SshRekey(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
-		SshScanChannel *channel, SSHSCAN_Output display, void *ctx,
-		const char **reason, unsigned long timeout)
+	SshRekey(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, SshScanChannel *channel, unsigned long timeout)
 		: _session(session), _rng(rng)
 	{
 		_channel = channel;
-		_display = display;
-		_ctx = ctx;
-		_reason = reason;
 		_timeout = timeout;
 		_serverSize = 0;
 		_pendingGlobalFailures = 0;
@@ -1269,11 +1226,11 @@ public:
 
 	bool Run(const unsigned char *serverKex, size_t serverKexSize)
 	{
-		SetReason("SSH rekey failed");
+		g_sshReason = "SSH rekey failed";
 		if( !SendKexinit(serverKex, serverKexSize) || !NegotiateKex() || !ExchangeEcdh() || !InstallKeys() )
 			return false;
 
-		SetReason("SSH transport rekey completed");
+		g_sshReason = "SSH transport rekey completed";
 		return true;
 	}
 
@@ -1281,9 +1238,6 @@ private:
 	SSHSCAN_Session &_session;
 	SSHCRYPT_RNG &_rng;
 	SshScanChannel *_channel;
-	SSHSCAN_Output _display;
-	void *_ctx;
-	const char **_reason;
 	unsigned long _timeout;
 	unsigned long _pendingGlobalFailures;
 	unsigned long _pendingOpens[16];
@@ -1302,12 +1256,6 @@ private:
 	unsigned char _digest[32];
 	unsigned char _ecdhInit[37];
 
-	void SetReason(const char *message)
-	{
-		if( _reason )
-			*_reason = message;
-	}
-
 	bool Send(const unsigned char *data, size_t size)
 	{
 		if( !SshPktWriteSecure(_session.encrypt, _rng, g_sshTxFrame, sizeof(g_sshTxFrame), data, size, _timeout, _session.outSequence) )
@@ -1321,7 +1269,7 @@ private:
 	bool Receive(unsigned long timeout = 0)
 	{
 		_packet = SshScanReadSecure(_session, _length, timeout ? timeout : _timeout);
-		return _packet != NULL && _length != 0;
+		return _packet != NULL;
 	}
 
 	bool HandleInFlight()
@@ -1333,8 +1281,8 @@ private:
 		SshScanReader reader(_packet, _length, 1);
 		if( type == 80 ) /* GLOBAL_REQUEST: reply after NEWKEYS. */
 		{
-			size_t name_size;
-			const unsigned char *name = reader.String(name_size);
+			size_t sz;
+			const unsigned char *name = reader.String(sz);
 			if( name == NULL )
 				return false;
 			int want_reply = reader.Flag();
@@ -1351,27 +1299,25 @@ private:
 
 		if( type == 90 ) /* Server-initiated CHANNEL_OPEN: reject later. */
 		{
-			size_t name_size;
-			const unsigned char *name = reader.String(name_size);
+			size_t sz;
+			const unsigned char *name = reader.String(sz);
 			unsigned long sender;
 			unsigned long window;
 			unsigned long max_packet;
-			if( name == NULL || !reader.U32(sender) ||
-				!reader.U32(window) || !reader.U32(max_packet) )
+			if( name == NULL || !reader.U32(sender) || !reader.U32(window) || !reader.U32(max_packet) )
 				return false;
 			if( _pendingOpenCount == sizeof(_pendingOpens) / sizeof(_pendingOpens[0]) )
 			{
-				SetReason("Too many server channel opens during rekey");
+				g_sshReason = "Too many server channel opens during rekey";
 				return false;
 			}
 			_pendingOpens[_pendingOpenCount++] = sender;
 			return true;
 		}
 
-		if( !_channel || !_display )
+		if( !_channel )
 			return false;
-		return SshScanHandleChannel(_session, _rng, *_channel, _packet,
-			_length, _display, _ctx, _reason, _timeout, false) == 0;
+		return SshScanHandleChannel(_session, _rng, *_channel, _packet, _length, _timeout, false) == 0;
 	}
 
 	bool SendKexinit(const unsigned char *serverKex, size_t serverKexSize)
@@ -1392,14 +1338,14 @@ private:
 		_clientSize = SshPktMakeKexinit(_cookie, g_clientKex, sizeof(g_clientKex));
 		DebugHex("rekey.kex_cookie", _cookie, sizeof(_cookie));
 
-		SetReason("Could not send rekey SSH_MSG_KEXINIT");
+		g_sshReason = "Could not send rekey SSH_MSG_KEXINIT";
 		if( _clientSize == 0 || !Send(g_clientKex, _clientSize) )
 			return false;
 
 		if( _serverSize )
 			return true;
 
-		SetReason("No SSH_MSG_KEXINIT from server during rekey");
+		g_sshReason = "No SSH_MSG_KEXINIT from server during rekey";
 		unsigned long start = g_transport.Ticks();
 		for( ;; )
 		{
@@ -1421,17 +1367,17 @@ private:
 
 			/* Application data sent before the peer KEXINIT is in flight.
 			 * No channel or global replies are allowed until NEWKEYS. */
-			SetReason("Invalid in-flight message during rekey");
+			g_sshReason = "Invalid in-flight message during rekey";
 			if( !HandleInFlight() )
 				return false;
-			SetReason("No SSH_MSG_KEXINIT from server during rekey");
+			g_sshReason = "No SSH_MSG_KEXINIT from server during rekey";
 		}
 	}
 
 	bool NegotiateKex()
 	{
-		SetReason("Incompatible or malformed rekey SSH_MSG_KEXINIT");
-		int discard = DosSshNegotiateKexinit(g_serverKex, _serverSize, _reason);
+		g_sshReason = "Incompatible or malformed rekey SSH_MSG_KEXINIT";
+		int discard = DosSshNegotiateKexinit(g_serverKex, _serverSize);
 		if( discard < 0 )
 			return false;
 		Log('I', "Rekey negotiated guess=%d", discard);
@@ -1442,8 +1388,6 @@ private:
 
 	bool ExchangeEcdh()
 	{
-		bool found = false;
-
 		_rng.Generate(_ephemeral, sizeof(_ephemeral));
 		DebugHex("rekey.x25519.private", _ephemeral, sizeof(_ephemeral));
 
@@ -1454,11 +1398,11 @@ private:
 		DebugHex("rekey.x25519.public", _publicKey, sizeof(_publicKey));
 		_ecdhSize = SshPktMakeEcdhInit(_publicKey, _ecdhInit, sizeof(_ecdhInit));
 
-		SetReason("Could not send SSH_MSG_KEX_ECDH_INIT during rekey");
+		g_sshReason = "Could not send SSH_MSG_KEX_ECDH_INIT during rekey";
 		if( _ecdhSize == 0 || !Send(_ecdhInit, _ecdhSize) )
 			return false;
 
-		SetReason("Missing or invalid SSH_MSG_KEX_ECDH_REPLY during rekey");
+		g_sshReason = "Missing or invalid SSH_MSG_KEX_ECDH_REPLY during rekey";
 		unsigned long start = g_transport.Ticks();
 		for( ;; )
 		{
@@ -1467,16 +1411,13 @@ private:
 				return false;
 
 			if( _packet[0] == 31 )
-			{
-				found = true;
 				break;
-			}
 
 			if( _packet[0] != 2 && _packet[0] != 3 && _packet[0] != 4 && _packet[0] != 7 )
 				return false;
 		}
 
-		if( !found || !_reply.Parse(_packet, _length) )
+		if( !_reply.Parse(_packet, _length) )
 			return false;
 
 		DebugHex("rekey.server.x25519.public", _reply.ServerPublic(), 32);
@@ -1487,7 +1428,7 @@ private:
 		if( _reply.HostKeyLength() != _session.serverHostKeyLength ||
 			memcmp(_reply.HostKey(), _session.serverHostKey, _reply.HostKeyLength()) != 0 )
 		{
-			SetReason("SSH host key changed during rekey");
+			g_sshReason = "SSH host key changed during rekey";
 			return false;
 		}
 
@@ -1498,18 +1439,17 @@ private:
 		DebugHex("rekey.x25519.shared_secret", _shared, sizeof(_shared));
 
 		SshExchange exchange;
-		exchange.SetIdentifiers((const unsigned char *)SSHSCAN_CLIENT_ID,
-			sizeof(SSHSCAN_CLIENT_ID) - 3, (const unsigned char *)_session.serverIdent,
-			strlen(_session.serverIdent));
+		exchange.SetIdentifiers((const unsigned char *)SSHSCAN_CLIENT_ID, sizeof(SSHSCAN_CLIENT_ID) - 3,
+			(const unsigned char *)_session.serverIdent, strlen(_session.serverIdent));
 		exchange.SetKexinit(g_clientKex, _clientSize, g_serverKex, _serverSize);
 		exchange.SetEcdh(_reply, _publicKey, _shared);
 
-		SetReason("Invalid X25519 rekey secret or exchange hash");
+		g_sshReason = "Invalid X25519 rekey secret or exchange hash";
 		if( !exchange.Hash(_digest) )
 			return false;
 		DebugHex("rekey.exchange_hash", _digest, sizeof(_digest));
 
-		SetReason("Invalid server Ed25519 signature during rekey");
+		g_sshReason = "Invalid server Ed25519 signature during rekey";
 		LongOp verify_op("Ed25519 verify");
 		return SshCurve::VerifyEd25519(_reply.HostPublic(), _reply.Signature(),
 			_digest, sizeof(_digest));
@@ -1524,7 +1464,7 @@ private:
 
 		/* NEWKEYS leaves using the OLD outbound cipher.  Switch immediately
 		 * afterwards; the incoming cipher remains OLD until peer NEWKEYS. */
-		SetReason("Cannot transmit SSH_MSG_NEWKEYS during rekey");
+		g_sshReason = "Cannot transmit SSH_MSG_NEWKEYS during rekey";
 		if( !Send(newkeys, sizeof(newkeys)) )
 			return false;
 
@@ -1532,7 +1472,7 @@ private:
 		_session.outEpochPackets = 0;
 		_session.outEpochBytes = 0;
 
-		SetReason("No SSH_MSG_NEWKEYS received during rekey");
+		g_sshReason = "No SSH_MSG_NEWKEYS received during rekey";
 		unsigned long start = g_transport.Ticks();
 		for( ;; )
 		{
@@ -1610,31 +1550,25 @@ private:
 
 static bool SshScanRekey(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
 						const unsigned char *firstKex, size_t firstKexLength,
-						SshScanChannel *channel, SSHSCAN_Output display, void *ctx,
-						const char **reason, unsigned long timeout)
+						SshScanChannel *channel, unsigned long timeout)
 {
 	Log('S', "Rekey %s rx=%lu tx=%lu in=%lu out=%lu",
 		firstKex ? "server" : "client", session.inSequence, session.outSequence,
 		session.inEpochPackets, session.outEpochPackets);
-	SshRekey exchange(session, rng, channel, display, ctx, reason, timeout);
+
+	SshRekey exchange(session, rng, channel, timeout);
 	bool ok = exchange.Run(firstKex, firstKexLength);
-	Log('S', "Rekey result=%d %s", ok, reason && *reason ? *reason : "unknown");
+	Log('S', "Rekey result=%d %s", ok, g_sshReason);
 	return ok;
 }
 
 bool SSHSCAN_Session::NeedsRekey(unsigned long now) const
 {
-	/* 1 GiB of payload or one million packets in either direction; the
-	 * optional 1-hour timer is specified in the caller's native ticks. */
-	return rekeyRequested || inEpochPackets >= 1000000ul ||
-		outEpochPackets >= 1000000ul || inEpochBytes >= 1073741824ul ||
-		outEpochBytes >= 1073741824ul ||
-		(rekeyPeriodTicks &&
-			(unsigned long)(now - lastKexTicks) >= rekeyPeriodTicks);
+	return rekeyRequested || inEpochPackets >= 1000000ul || outEpochPackets >= 1000000ul ||
+		inEpochBytes >= 1073741824ul || outEpochBytes >= 1073741824ul ||
+		(rekeyPeriodTicks && (unsigned long)(now - lastKexTicks) >= rekeyPeriodTicks);
 }
 
-/* All exits from the interactive loop erase queued input and SSH payloads.
- * The key buffer is borrowed, not copied or dynamically allocated. */
 class SshShellCleanup
 {
 public:
@@ -1649,29 +1583,20 @@ private:
 	unsigned char (&_keys)[256];
 };
 
-/* Local detach does not require channel send-window credit. */
-static bool SshScanLocalDetach(SSHSCAN_Session &session,
-	SSHCRYPT_RNG &rng, SshScanChannel &channel, const char **reason, unsigned long timeout)
+static bool SshScanLocalDetach(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, SshScanChannel &channel, unsigned long timeout)
 {
-	if( !SshScanSendChannel(session, rng, 96, channel.Remote(), timeout) ||
-		!SshScanSendChannel(session, rng, 97, channel.Remote(), timeout) )
+	if( !SshScanSendChannel(session, rng, 96, channel.Remote(), timeout) || !SshScanSendChannel(session, rng, 97, channel.Remote(), timeout) )
 		return false;
 	channel.MarkCloseSent();
-	if( reason )
-		*reason = "Local terminal disconnected";
+	g_sshReason = "Local terminal disconnected";
 	return true;
 }
 
-bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, int cols,
-	int rows, const char *terminalType, SSHSCAN_Input keyboard, SSHSCAN_Output display,
-	void *terminalCtx, const char **reason, unsigned long timeout)
+bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
+	int cols, int rows, const char *terminalType, unsigned long timeout)
 {
-	if( reason )
-		*reason = "SSH channel setup failed";
-	if( !session.authenticated || !rng.initialized || !keyboard || !display || !terminalType ||
-		(strcmp(terminalType, "xterm") != 0 && strcmp(terminalType, "vt100") != 0) ||
-		cols < 40 || cols > 132 || rows < 20 || rows > 50 ||
-		timeout == 0 || timeout >= 0x80000000ul )
+	g_sshReason = "SSH channel setup failed";
+	if( !session.authenticated || !rng.initialized )
 		return false;
 
 	unsigned char keys[256];
@@ -1683,18 +1608,15 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, int cols,
 	writer.U32(0); /* local channel 0 */
 	writer.U32(65536ul); /* receive window */
 	writer.U32(32768ul); /* maximum channel payload */
-	if( reason )
-		*reason = "Cannot open SSH session channel";
+	g_sshReason = "Cannot open SSH session channel";
+
 	if( !SshScanSendSecure(session, rng, writer, timeout) )
 		return false;
 
-	const unsigned char *packet;
 	size_t length;
+	const unsigned char *packet = SshScanReadControl(session, rng, length, timeout);
 	{
-		packet = SshScanReadControl(session, rng, length, timeout);
-		if( packet == NULL )
-			return false;
-		if( length < 5 || (packet[0] != 91 && packet[0] != 92) )
+		if( packet == NULL || length < 5 || (packet[0] != 91 && packet[0] != 92) )
 			return false;
 
 		SshScanReader confirmation(packet, length, 1);
@@ -1703,16 +1625,14 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, int cols,
 			return false;
 		if( packet[0] == 92 )
 		{
-			if( reason )
-				*reason = "Server refused session channel";
+			g_sshReason = "Server refused session channel";
 			return false;
 		}
 
 		unsigned long remote;
 		unsigned long window;
 		unsigned long max_packet;
-		if( !confirmation.U32(remote) || !confirmation.U32(window) ||
-			!confirmation.U32(max_packet) || max_packet == 0ul )
+		if( !confirmation.U32(remote) || !confirmation.U32(window) || !confirmation.U32(max_packet) || max_packet == 0ul )
 			return false;
 		channel.Open(remote, window, max_packet);
 	}
@@ -1721,8 +1641,6 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, int cols,
 	writer.U32(channel.Remote());
 	writer.Literal("pty-req");
 	writer.Byte(1); /* want reply */
-	/* The caller selects TERM. xterm (not xterm-256color) supports
-	 * F1-F12 and basic/bright ANSI colours on both DOS display types. */
 	writer.Literal(terminalType);
 	writer.U32(cols);
 	writer.U32(rows);
@@ -1730,23 +1648,20 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, int cols,
 	writer.U32(0);
 	const unsigned char end_modes[] = {0};
 	writer.String(end_modes, sizeof(end_modes)); /* TTY_OP_END */
-	if( reason )
-		*reason = "PTY request rejected or timed out";
-	if( !SshScanSendSecure(session, rng, writer, timeout) ||
-		!SshScanExpectChannel(session, rng, channel, reason, timeout) )
+	g_sshReason = "PTY request rejected or timed out";
+	if( !SshScanSendSecure(session, rng, writer, timeout) || !SshScanExpectChannel(session, rng, channel, timeout) )
 		return false;
 
 	writer.Begin(98); /* CHANNEL_REQUEST shell */
 	writer.U32(channel.Remote());
 	writer.Literal("shell");
 	writer.Byte(1);
-	if( reason )
-		*reason = "Remote shell request rejected or timed out";
-	if( !SshScanSendSecure(session, rng, writer, timeout) || !SshScanExpectChannel(session, rng, channel, reason, timeout) )
+	g_sshReason = "Remote shell request rejected or timed out";
+	if( !SshScanSendSecure(session, rng, writer, timeout) || !SshScanExpectChannel(session, rng, channel, timeout) )
 		return false;
 
-	if( reason )
-		*reason = "SSH interactive channel or transport failure";
+	g_sshReason = "SSH interactive channel or transport failure";
+
 	SshPacketReader reader;
 	for( ;; )
 	{
@@ -1754,16 +1669,14 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, int cols,
 		 * Never start a local rekey before it has been consumed. */
 		if( reader.IsIdle() && session.NeedsRekey(g_transport.Ticks()) )
 		{
-			if( !SshScanRekey(session, rng, NULL, 0, &channel, display, terminalCtx, reason, timeout) )
+			if( !SshScanRekey(session, rng, NULL, 0, &channel, timeout) )
 				return false;
 			if( channel.CloseReceived() )
 			{
-				if( reason )
-					*reason = "SSH shell channel closed during rekey";
+				g_sshReason = "SSH shell channel closed during rekey";
 				return true;
 			}
-			if( reason )
-				*reason = "SSH interactive channel or transport failure";
+			g_sshReason = "SSH interactive channel or transport failure";
 		}
 
 		int polled = reader.Poll(session.decrypt, g_sshFrame, sizeof(g_sshFrame), &packet, length, session.inSequence);
@@ -1778,26 +1691,23 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, int cols,
 			DebugPacket("recv encrypted", packet[0], length, session.inSequence - 1ul);
 			if( packet[0] == 20 )
 			{
-				if( !SshScanRekey(session, rng, packet, length, &channel, display, terminalCtx, reason, timeout) )
+				if( !SshScanRekey(session, rng, packet, length, &channel, timeout) )
 					return false;
 				if( channel.CloseReceived() )
 				{
-					if( reason )
-						*reason = "SSH shell channel closed during rekey";
+					g_sshReason = "SSH shell channel closed during rekey";
 					return true;
 				}
-				if( reason )
-					*reason = "SSH interactive channel or transport failure";
+				g_sshReason = "SSH interactive channel or transport failure";
 				continue;
 			}
 
-			int status = SshScanHandleChannel(session, rng, channel, packet, length, display, terminalCtx, reason, timeout);
+			int status = SshScanHandleChannel(session, rng, channel, packet, length, timeout);
 			if( status < 0 )
 				return false;
 			if( status > 0 )
 			{
-				if( reason )
-					*reason = "SSH shell channel closed";
+				g_sshReason = "SSH shell channel closed";
 				return true;
 			}
 		}
@@ -1805,15 +1715,14 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, int cols,
 		/* Poll local escape on EVERY iteration, even when the remote SSH
 		 * channel window is zero or the server has sent CHANNEL_EOF.
 		 * capacity=0 never sends normal input; DOS adapter buffers keys. */
-		int command = keyboard(terminalCtx, NULL, 0);
+		int command = DosTerminalInput(NULL, 0);
 		if( command == -2 )
 		{
-			if( reason )
-				*reason = "DOS terminal out of memory";
+			g_sshReason = "DOS terminal out of memory";
 			return false;
 		}
 		if( command == -1 )
-			return SshScanLocalDetach(session, rng, channel, reason, timeout);
+			return SshScanLocalDetach(session, rng, channel, timeout);
 		if( !channel.Eof() )
 		{
 			size_t count = channel.SendLimit(sizeof(keys));
@@ -1825,7 +1734,7 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, int cols,
 				/* Drain only keys already in the BIOS queue; no added latency. */
 				while( key_count < count )
 				{
-					next_key = keyboard(terminalCtx, keys + key_count, count - key_count);
+					next_key = DosTerminalInput(keys + key_count, count - key_count);
 					if( next_key <= 0 )
 						break;
 					key_count += (size_t)next_key;
@@ -1833,12 +1742,11 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, int cols,
 
 				if( next_key == -2 )
 				{
-					if( reason )
-						*reason = "DOS terminal out of memory";
+					g_sshReason = "DOS terminal out of memory";
 					return false;
 				}
 				if( next_key < 0 )
-					return SshScanLocalDetach(session, rng, channel, reason, timeout);
+					return SshScanLocalDetach(session, rng, channel, timeout);
 				if( key_count > 0 )
 				{
 					writer.Begin(94); /* CHANNEL_DATA */
@@ -1846,7 +1754,7 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, int cols,
 					writer.String(keys, key_count);
 					if( !SshScanSendSecure(session, rng, writer, timeout) )
 						return false;
-					/* Interactive input can itself contain secret text. */
+
 					SshCrypt::Zero(keys, key_count);
 					SshCrypt::Zero(g_sshMessage, writer.Size());
 					channel.Sent(key_count);

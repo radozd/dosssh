@@ -9,8 +9,8 @@ compile_options = -1 $(memory_model) -DCFG_H="dosssh.cfg" -oh -ok -ot -s -oa -ei
 compile_options += -i=$(tcp_h_dir) -i=$(common_h_dir)
 
 tcpobjs = packet.obj arp.obj eth.obj ip.obj tcp.obj tcpsockm.obj udp.obj utils.obj dns.obj timer.obj ipasm.obj trace.obj
-sshobjs = sshsha.obj sshcrypt.obj sshent.obj sshpkt.obj sshscan.obj vt100.obj
-objs = dosssh.obj encoding.obj config.obj sshnet.obj $(sshobjs)
+sshobjs = sshsha.obj sshcrypt.obj sshent.obj sshpkt.obj sshscan.obj sshnet.obj
+objs = dosssh.obj encoding.obj config.obj vt100.obj util.obj
 
 all : dosssh.exe
 
@@ -24,11 +24,11 @@ clean : .symbolic
 .cpp : $(tcp_c_dir)
 
 .asm.obj :
-  *wasm -3 $(memory_model) $[*
+  *wasm -1 $(memory_model) $[*
 
 .cpp.obj :
   *wpp $[* $(compile_options)
 
-dosssh.exe : $(tcpobjs) $(objs)
+dosssh.exe : $(tcpobjs) $(sshobjs) $(objs)
   *wlink system dos option map option eliminate option stack=12288 name $@ file *.obj
 

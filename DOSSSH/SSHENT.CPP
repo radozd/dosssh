@@ -24,6 +24,8 @@
 #include <conio.h>
 #include <dos.h>
 #include <time.h>
+#include <bios.h>
+
 #include "inlines.h"
 
 #include "SSHENT.H"

@@ -204,9 +204,9 @@ void UiScreen::Draw()
 		int offset = _screenCols*y + first;
 		for( int x = first; x <= last; x++, offset++ )
 		{
-			uint16_t value = ((uint16_t)DosColor(line[x], _bw) << 8) | line[x].ch;
-			if( video[offset] != value )
-				video[offset] = value;
+			uint16_t sc = line[x].ScreenChar(_bw);
+			if( video[offset] != sc )
+				video[offset] = sc;
 		}
 	}
 

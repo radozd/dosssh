@@ -24,6 +24,7 @@
 #include <stddef.h>
 
 class TcpSocket;
+
 class MtcpTransport
 {
 public:
@@ -53,6 +54,5 @@ private:
 	unsigned long _driverErrors;
 };
 
-extern MtcpTransport g_transport;
 
 #endif

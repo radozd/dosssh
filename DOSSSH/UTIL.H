@@ -22,10 +22,35 @@
 #define DOSSSH_UTIL_H
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdarg.h>
-#include <malloc.h>
+
+enum
+{
+	VT_UNDERLINE = 1,
+	VT_REVERSE = 2,
+	VT_BOLD = 4
+};
+
+enum
+{
+	VT_KEY_SHIFT = 1,
+	VT_KEY_ALT = 2,
+	VT_KEY_CTRL = 4
+};
+
+void CopyDataTrunc(char *dst, size_t dstSize, const char *src, size_t srcLen);
+void CopyTrunc(char *dst, size_t dstSize, const char *src);
 
 void SprintfTruncV(char *dst, size_t dstSize, const char *fmt, va_list ap);
 void SprintfTrunc(char *dst, size_t dstSize, const char *fmt, ...);
+
+void FormatSize(char *dst, size_t dstSize, __int64 bytes);
+void ProbeFreeMem(char *buf, size_t bufSize);
+
+int KeyAscii(uint16_t key);
+void DosFlushKeys();
+int DosGetKey();
+unsigned char KeyboardModifiers();
 
 #endif

@@ -33,8 +33,7 @@ public:
 	static bool LoadSeed(unsigned char seed[64], bool &present);
 	static bool RotateSeed(const unsigned char seed[64]);
 	static bool KnownHost(const char *host, unsigned int port, const unsigned char *key,
-		size_t keySize, const unsigned char digest[32],
-		bool (*confirm)(void *, const char *, const char *), void *ctx);
+		size_t keySize, const unsigned char digest[32]);
 };
 
 #endif

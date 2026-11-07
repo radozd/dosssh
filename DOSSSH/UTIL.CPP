@@ -18,9 +18,19 @@
 	along with DOSSSH. If not, see <https://www.gnu.org/licenses/>.
 */
 
+#include <malloc.h>
+#include <mem.h>
+#include <bios.h>
+#include <dos.h>
+#include <stdio.h>
+
+#include "inlines.h"
+
+#include "UTIL.H"
+
 // Strings
 
-static void CopyDataTrunc(char *dst, size_t dstSize, const char *src, size_t srcLen)
+void CopyDataTrunc(char *dst, size_t dstSize, const char *src, size_t srcLen)
 {
 	if( dst == NULL || dstSize == 0 )
 		return;
@@ -39,7 +49,7 @@ static void CopyDataTrunc(char *dst, size_t dstSize, const char *src, size_t src
 	dst[copy_len] = '\0';
 }
 
-static void CopyTrunc(char *dst, size_t dstSize, const char *src)
+void CopyTrunc(char *dst, size_t dstSize, const char *src)
 {
 	CopyDataTrunc(dst, dstSize, src, src ? strlen(src) : 0);
 }
@@ -105,7 +115,7 @@ void FormatSize(char *dst, size_t dstSize, __int64 bytes)
 	}
 }
 
-static void ProbeFreeMem(char *buf, size_t bufSize)
+void ProbeFreeMem(char *buf, size_t bufSize)
 {
 	buf[0] = '\0';
 
@@ -139,24 +149,25 @@ static void ProbeFreeMem(char *buf, size_t bufSize)
 
 // Keyboard
 
-static int KeyAscii(uint16_t key)
+int KeyAscii(uint16_t key)
 {
 	return key & 0x00FF;
 }
 
-static void DosFlushKeys()
+void DosFlushKeys()
 {
 	while( biosIsKeyReady() )
 		biosKeyRead();
 }
 
-static int DosGetKey()
+unsigned char KeyboardModifiers()
 {
-	while( !biosIsKeyReady() )
-	{
-		if( g_transport.Aborted() )
-			return -1;
-		g_transport.Pump();
-	}
-	return (int)biosKeyRead();
+	union REGS regs;
+	regs.h.ah = 0x02;
+	int86(0x16, &regs, &regs);
+	unsigned char flags = regs.h.al;
+	return (unsigned char)(((flags & 0x03u) ? VT_KEY_SHIFT : 0u) |
+		((flags & 0x04u) ? VT_KEY_CTRL : 0u) |
+		((flags & 0x08u) ? VT_KEY_ALT : 0u));
 }
+

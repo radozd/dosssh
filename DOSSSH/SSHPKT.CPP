@@ -21,6 +21,7 @@
 #include <string.h>
 #include <stddef.h>
 #include "SSHPKT.H"
+#include "GLOBALS.H"
 #include "SSHSHA.H"
 #include "DEBUG.H"
 
@@ -56,8 +57,7 @@ size_t SshPktEncodePlain(const unsigned char *payload, size_t payloadLength,
 	const unsigned char *randomPad, size_t padLength, unsigned char *frame, size_t capacity)
 {
 	size_t needed_pad = SshPktPaddingSize(payloadLength);
-	if( payload == NULL || randomPad == NULL || frame == NULL ||
-		needed_pad == 0 || needed_pad != padLength )
+	if( payload == NULL || randomPad == NULL || frame == NULL || needed_pad == 0 || needed_pad != padLength )
 		return 0;
 
 	unsigned long packet_length = (unsigned long)payloadLength + 1ul + padLength;
@@ -72,8 +72,7 @@ size_t SshPktEncodePlain(const unsigned char *payload, size_t payloadLength,
 	return (size_t)(packet_length + 4ul);
 }
 
-const unsigned char *SshPktDecodePlain(const unsigned char *frame, size_t frameLength,
-						size_t &payloadLength)
+const unsigned char *SshPktDecodePlain(const unsigned char *frame, size_t frameLength, size_t &payloadLength)
 {
 	if( frame == NULL || frameLength < 12 || frameLength > SSHPKT_MAX_FRAME )
 		return NULL;
@@ -91,8 +90,7 @@ const unsigned char *SshPktDecodePlain(const unsigned char *frame, size_t frameL
 	return frame + 5;
 }
 
-static bool SshPktReadBefore(unsigned char *out, size_t length, unsigned long started,
-							unsigned long deadline)
+static bool SshPktReadBefore(unsigned char *out, size_t length, unsigned long started, unsigned long deadline)
 {
 	unsigned long elapsed = (unsigned long)(g_transport.Ticks() - started);
 	if( elapsed >= deadline )
@@ -102,8 +100,7 @@ static bool SshPktReadBefore(unsigned char *out, size_t length, unsigned long st
 }
 
 const unsigned char *SshPktReadPlain(unsigned char *frame, size_t capacity,
-						size_t &payloadLength, unsigned long deadline,
-						unsigned long *sequence)
+	size_t &payloadLength, unsigned long deadline, unsigned long *sequence)
 {
 	if( frame == NULL || capacity < 12 || deadline == 0 || deadline >= 0x80000000ul )
 		return NULL;
@@ -116,7 +113,9 @@ const unsigned char *SshPktReadPlain(unsigned char *frame, size_t capacity,
 	/* Reject a huge packet BEFORE attempting to read it or allocate memory. */
 	if( packet_length < 6 || packet_length > SSHPKT_MAX_PACKET || ((packet_length + 4ul) & 7ul) != 0 ||
 		packet_length + 4ul > (unsigned long)capacity )
+	{
 		return NULL;
+	}
 
 	if( !SshPktReadBefore(frame + 4, (size_t)packet_length, started, deadline) )
 		return NULL;
@@ -136,8 +135,9 @@ bool SshPktWritePlain(const unsigned char *frame, size_t frameLength,
 	size_t payload_length;
 	if( SshPktDecodePlain(frame, frameLength, payload_length) == NULL || timeout == 0 ||
 		timeout >= 0x80000000ul || !DosSshWriteAll(frame, frameLength, timeout) )
+	{
 		return false;
-
+	}
 	if( sequence != NULL )
 		*sequence = (*sequence + 1ul) & 0xFFFFFFFFul;
 	return true;
@@ -179,8 +179,7 @@ size_t SshPktMakeKexinit(const unsigned char cookie[16], unsigned char *p, size_
 
 /* Exact-size SSH 'string' parser: reject 32-bit lengths that overflow the
  * remaining 16-bit payload rather than narrowing them first. */
-static const unsigned char *SshPktString(const unsigned char *p, size_t length,
-	size_t &offset, size_t &used)
+static const unsigned char *SshPktString(const unsigned char *p, size_t length, size_t &offset, size_t &used)
 {
 	if( p == NULL || offset > length || length - offset < 4 )
 		return NULL;
@@ -248,24 +247,23 @@ bool SshEcdhReply::Parse(const unsigned char *packet, size_t packetSize)
 
 	size_t inner_pos = 0;
 	size_t algorithm_size;
-	size_t host_public_size;
-	const unsigned char *algorithm;
-	const unsigned char *host_public;
 
-	algorithm = SshPktString(host_key, host_key_size, inner_pos, algorithm_size);
+	const unsigned char *algorithm = SshPktString(host_key, host_key_size, inner_pos, algorithm_size);
 	if( algorithm == NULL || !SshPktName(algorithm, algorithm_size) )
 		return false;
-	host_public = SshPktString(host_key, host_key_size, inner_pos, host_public_size);
+
+	size_t host_public_size;
+	const unsigned char *host_public = SshPktString(host_key, host_key_size, inner_pos, host_public_size);
 	if( host_public == NULL || host_public_size != 32 || inner_pos != host_key_size )
 		return false;
 
 	inner_pos = 0;
-	size_t signature_size;
-	const unsigned char *signature;
 	algorithm = SshPktString(signature_blob, signature_blob_size, inner_pos, algorithm_size);
 	if( algorithm == NULL || !SshPktName(algorithm, algorithm_size) )
 		return false;
-	signature = SshPktString(signature_blob, signature_blob_size, inner_pos, signature_size);
+
+	size_t signature_size;
+	const unsigned char *signature = SshPktString(signature_blob, signature_blob_size, inner_pos, signature_size);
 	if( signature == NULL || signature_size != 64 || inner_pos != signature_blob_size )
 		return false;
 
@@ -354,11 +352,15 @@ bool SshExchange::IsValid() const
 		_clientKexLength < 62 || _serverKexLength < 62 ||
 		_clientKexLength > SSHPKT_MAX_PACKET || _serverKexLength > SSHPKT_MAX_PACKET ||
 		_clientKex[0] != 20 || _serverKex[0] != 20 )
+	{
 		return false;
+	}
 
 	if( _hostKey == NULL || _hostKeyLength == 0 || _hostKeyLength > SSHPKT_MAX_PACKET ||
 		_clientPublic == NULL || _serverPublic == NULL || _sharedSecret == NULL )
+	{
 		return false;
+	}
 
 	/* RFC 7748: do not accept an all-zero X25519 shared secret. */
 	unsigned char nonzero = 0;
@@ -513,8 +515,7 @@ void SshPktCipherInit(SSHPKT_Cipher &cipher, const unsigned char key[16], const 
 bool SshPktWriteSecure(SSHPKT_Cipher &cipher, SSHCRYPT_RNG &rng, unsigned char *frame,
 	size_t capacity, const unsigned char *payload, size_t length, unsigned long deadline, unsigned long &sequence)
 {
-	if( frame == NULL || payload == NULL || !length ||
-		deadline == 0 || deadline >= 0x80000000ul )
+	if( frame == NULL || payload == NULL || !length || deadline == 0 || deadline >= 0x80000000ul )
 		return false;
 
 	int pad = (int)(16ul - (((unsigned long)length + 5ul) % 16ul));
@@ -540,8 +541,7 @@ bool SshPktWriteSecure(SSHPKT_Cipher &cipher, SSHCRYPT_RNG &rng, unsigned char *
 }
 
 const unsigned char *SshPktReadSecure(SSHPKT_Cipher &cipher, unsigned char *frame, size_t capacity,
-						size_t &length, unsigned long deadline,
-						unsigned long &sequence)
+	size_t &length, unsigned long deadline, unsigned long &sequence)
 {
 	if( frame == NULL || capacity < 16 || deadline == 0 || deadline >= 0x80000000ul )
 		return NULL;
@@ -552,8 +552,7 @@ const unsigned char *SshPktReadSecure(SSHPKT_Cipher &cipher, unsigned char *fram
 
 	cipher.aes.Xor(frame, 16);
 	unsigned long packet_len = SshPktGet32(frame);
-	if( packet_len < 12 || packet_len > SSHPKT_MAX_PACKET || ((packet_len + 4ul) & 15ul) != 0 ||
-		packet_len + 4ul > capacity )
+	if( packet_len < 12 || packet_len > SSHPKT_MAX_PACKET || ((packet_len + 4ul) & 15ul) != 0 || packet_len + 4ul > capacity )
 	{
 		Log('E', "SSH invalid encrypted len=%lu seq=%lu", packet_len, sequence);
 		return NULL;
@@ -667,8 +666,6 @@ int SshPacketReader::Poll(SSHPKT_Cipher &cipher,
 		}
 	}
 }
-
-/* Bounded polling transfers used by SSH packet transport. */
 
 bool DosSshReadExact(unsigned char *buf, size_t length, unsigned long timeout)
 {
@@ -817,7 +814,7 @@ public:
 
 	bool IsValid() const { return _valid; }
 
-	int Negotiate(const char **reason) const
+	int Negotiate() const
 	{
 		static const char *required[8] = {
 			"curve25519-sha256", "ssh-ed25519", "aes128-ctr", "aes128-ctr",
@@ -830,8 +827,7 @@ public:
 			"No compression=none C->S offer", "No compression=none S->C offer"
 		};
 
-		if( reason != NULL )
-			*reason = "Malformed SSH_MSG_KEXINIT";
+		g_sshReason = "Malformed SSH_MSG_KEXINIT";
 		if( !IsValid() )
 			return -1;
 
@@ -839,16 +835,13 @@ public:
 		{
 			if( !_lists[i].Contains(required[i]) )
 			{
-				if( reason != NULL )
-					*reason = missing[i];
+				g_sshReason = missing[i];
 				return -1;
 			}
 		}
 
-		if( reason != NULL )
-			*reason = "Compatible offers (exchange NOT complete)";
-		return _firstKexPacketFollows &&
-			(!_lists[0].FirstIs(required[0]) || !_lists[1].FirstIs(required[1])) ? 1 : 0;
+		g_sshReason = "Compatible offers (exchange NOT complete)";
+		return _firstKexPacketFollows && (!_lists[0].FirstIs(required[0]) || !_lists[1].FirstIs(required[1])) ? 1 : 0;
 	}
 
 private:
@@ -886,9 +879,8 @@ private:
 	}
 };
 
-int DosSshNegotiateKexinit(const unsigned char *packet, size_t packetSize,
-	const char **reason)
+int DosSshNegotiateKexinit(const unsigned char *packet, size_t packetSize)
 {
 	SshKexinit kexinit(packet, packetSize);
-	return kexinit.Negotiate(reason);
+	return kexinit.Negotiate();
 }

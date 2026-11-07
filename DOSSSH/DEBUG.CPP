@@ -26,23 +26,17 @@
 #include <stdio.h>
 #include <time.h>
 #include "DEBUG.H"
+#include "GLOBALS.H"
 #include "UTIL.H"
 
-static bool g_debugRequested = false;
 static FILE *g_debugStream = NULL;
-static const char g_debugFilename[] = "DOSSSH.LOG";
 
-void DebugRequest(bool enabled)
+void InitDebug()
 {
-	g_debugRequested = enabled;
-}
-
-void DebugOpen()
-{
-	if( !g_debugRequested )
+	if( !g_debugArg )
 		return;
 
-	g_debugStream = fopen(g_debugFilename, "wt");
+	g_debugStream = fopen("DOSSSH.LOG", "wt");
 	if( g_debugStream == NULL )
 	{
 		Log('E', "Cannot open DOSSSH.LOG; continuing without -debug trace.");
@@ -54,14 +48,14 @@ void DebugOpen()
 	fflush(stdout);
 }
 
-bool DebugIsOn()
+bool DebugEnabled()
 {
 	return g_debugStream != NULL;
 }
 
-void DebugStopped()
+void StopDebug()
 {
-	if( g_debugStream != NULL )
+	if( DebugEnabled() )
 	{
 		fclose(g_debugStream);
 		g_debugStream = NULL;
@@ -182,7 +176,7 @@ LongOp::~LongOp()
 
 void LongOp::Show()
 {
-	if( g_currentOp == NULL || g_screen.IsCaptured() || g_statusVisible )
+	if( g_screen.IsCaptured() )
 		return;
 
 	printf("%.48s", g_currentOp->_name);
@@ -209,7 +203,7 @@ void LongOp::Show()
 
 static void LogWriteFile(char type, const char *line)
 {
-	if( g_debugStream == NULL || line[0] == '\0' )
+	if( !DebugEnabled() || line[0] == '\0' )
 		return;
 
 	time_t now = time(NULL);
@@ -229,7 +223,7 @@ static void LogWriteFile(char type, const char *line)
 
 void Log(char type, const char *format, ...)
 {
-	if( g_debugStream == NULL && (type != 'E' || g_screen.IsCaptured()) )
+	if( !DebugEnabled() && (type != 'E' || g_screen.IsCaptured()) )
 		return;
 
 	char line[224];
@@ -250,7 +244,7 @@ void Log(char type, const char *format, ...)
 
 void DebugHex(const char *name, const unsigned char *bytes, size_t length)
 {
-	if( !DebugIsOn() )
+	if( !DebugEnabled() )
 		return;
 
 	static const char digits[] = "0123456789abcdef";
@@ -266,7 +260,7 @@ void DebugHex(const char *name, const unsigned char *bytes, size_t length)
 
 void DebugPacket(const char *direction, int type, size_t length, unsigned long sequence)
 {
-	if( !DebugIsOn() )
+	if( !DebugEnabled() )
 		return;
 
 	if( type == 94 || type == 95 ) // Never trace interactive traffic

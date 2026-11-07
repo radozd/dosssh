@@ -23,10 +23,9 @@
 
 #include <stddef.h>
 
-void DebugRequest(bool enabled);
-void DebugOpen();
-bool DebugIsOn();
-void DebugStopped();
+void InitDebug();
+bool DebugEnabled();
+void StopDebug();
 
 /* All types are written to DOSSSH.LOG only with -debug. Before the
  * screen is captured, only E=error is also printed to the console.

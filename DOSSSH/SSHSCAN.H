@@ -57,21 +57,11 @@ struct SSHSCAN_Session
 	void RecordReceived(size_t length);
 };
 
-typedef bool (*SSHSCAN_Password)(void *ctx, char *buffer, size_t capacity);
-// Keyboard-interactive may ask for passwords and for displayed OTPs.
-typedef bool (*SSHSCAN_Challenge)(void *ctx, const char *prompt, bool echo, char *response, size_t capacity);
-typedef void (*SSHSCAN_Output)(void *ctx, const unsigned char *data, size_t length);
-// capacity=0: poll only local commands (0, -1 detach, -2 fatal).
-// capacity>0: returns 0 idle, -1 disconnect, -2 fatal or 1..capacity bytes.
-typedef int (*SSHSCAN_Input)(void *ctx, unsigned char *data, size_t capacity);
-typedef bool (*SSHSCAN_HostTrust)(void *ctx, const unsigned char *hostKey, size_t keySize, const unsigned char sha256[32]);
-
 bool SshScanIdent(char *server, size_t capacity, unsigned long timeoutTicks);
 bool SshScanSendIdent(unsigned long timeoutTicks);
 
 bool SshScanExchangeTofu(const char *serverIdent, SSHCRYPT_RNG &rng,
-	SSHSCAN_Session &session, SSHSCAN_HostTrust checkHost, void *trustCtx,
-	const char **reason, unsigned long timeoutTicks);
+	SSHSCAN_Session &session, unsigned long timeoutTicks);
 
 void SshScanFingerprint(const unsigned char digest[32], char result[52]);
 bool SshScanUtf8Valid(const unsigned char *text, size_t length);
@@ -80,8 +70,7 @@ class SshAuthenticator
 {
 public:
 	SshAuthenticator(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
-		const char *username, SSHSCAN_Password password, SSHSCAN_Challenge challenge,
-		void *promptCtx, const char **reason, unsigned long timeout);
+		const char *username, unsigned long timeout);
 	~SshAuthenticator();
 	bool Login();
 
@@ -89,16 +78,11 @@ private:
 	SSHSCAN_Session &_session;
 	SSHCRYPT_RNG &_rng;
 	const char *_username;
-	SSHSCAN_Password _password;
-	SSHSCAN_Challenge _challenge;
-	void *_promptCtx;
-	const char **_reason;
 	unsigned long _timeout;
 	unsigned int _methods;
 	bool _partial;
 	char _secret[97];
 
-	void SetReason(const char *message);
 	bool Complete();
 	bool SendRequest(const char *method);
 	bool ValidResponse(const char *answer);
@@ -110,7 +94,6 @@ private:
 
 bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
 	int cols, int rows, const char *terminalType,
-	SSHSCAN_Input keyboard, SSHSCAN_Output display, void *terminalCtx,
-	const char **reason, unsigned long timeoutTicks);
+	unsigned long timeoutTicks);
 
 #endif

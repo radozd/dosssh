@@ -18,6 +18,21 @@
 	along with DOSSSH. If not, see <https://www.gnu.org/licenses/>.
 */
 
+#include <bios.h>
+
+#include "inlines.h"
+
+int DosGetKey()
+{
+	while( !biosIsKeyReady() )
+	{
+		if( g_transport.Aborted() )
+			return -1;
+		g_transport.Pump();
+	}
+	return (int)biosKeyRead();
+}
+
 static bool DosUsername(char *username, size_t capacity)
 {
 	DosFlushKeys();
@@ -48,7 +63,7 @@ static bool DosUsername(char *username, size_t capacity)
 				fflush(stdout);
 			}
 		}
-		else if( c >= 33 && c <= 255 && c != 127 && used < sizeof(oem)-1 )
+		else if( c >= 33 && c != 127 && used < sizeof(oem)-1 )
 		{
 			oem[used++] = (char)c;
 			printf("%c", c);
@@ -61,7 +76,7 @@ static bool DosUsername(char *username, size_t capacity)
 
 // Read a credential only after KEX and host-key verification.
 // UTF-8 is sent over SSH; DOS OEM bytes are only used for local echo.
-static bool DosReadCredential(void *ctx, const char *prompt, bool echo, bool allowEmpty, char *answer, size_t capacity)
+static bool DosReadCredential(const char *username, const char *prompt, bool echo, bool allowEmpty, char *answer, size_t capacity)
 {
 	DosFlushKeys();
 	if( prompt && *prompt )
@@ -73,8 +88,8 @@ static bool DosReadCredential(void *ctx, const char *prompt, bool echo, bool all
 		if( length && prompt[length - 1] != ' ' && prompt[length - 1] != '\t' )
 			printf(" ");
 	}
-	else if( ctx != NULL )
-		printf("%s@%s's password: ", (const char *)ctx, g_hostArg);
+	else if( username != NULL )
+		printf("%s@%s's password: ", username, g_hostArg);
 	else
 		printf("password: ");
 	fflush(stdout);
@@ -112,7 +127,7 @@ static bool DosReadCredential(void *ctx, const char *prompt, bool echo, bool all
 			}
 			continue;
 		}
-		if( ch >= 32 && ch <= 255 && ch != 127 )
+		if( ch >= 32 && ch != 127 )
 		{
 			unsigned char utf[4];
 			size_t size = DosOemToUtf8((unsigned char)ch, utf);
@@ -130,17 +145,17 @@ static bool DosReadCredential(void *ctx, const char *prompt, bool echo, bool all
 	}
 }
 
-static bool DosPassword(void *ctx, char *password, size_t capacity)
+bool DosPassword(const char *username, char *password, size_t capacity)
 {
-	return DosReadCredential(ctx, NULL, false, false, password, capacity);
+	return DosReadCredential(username, NULL, false, false, password, capacity);
 }
 
-static bool DosChallenge(void *ctx, const char *prompt, bool echo, char *response, size_t capacity)
+bool DosChallenge(const char *username, const char *prompt, bool echo, char *response, size_t capacity)
 {
-	return DosReadCredential(ctx, prompt, echo, true, response, capacity);
+	return DosReadCredential(username, prompt, echo, true, response, capacity);
 }
 
-static bool DosConfirmHost(void *, const char *host, const char *fingerprint)
+bool DosConfirmHost(const char *host, const char *fingerprint)
 {
 	DosFlushKeys();
 	printf("The authenticity of host '%s' can't be established.\n", host);
@@ -185,13 +200,82 @@ static bool DosConfirmHost(void *, const char *host, const char *fingerprint)
 		(input[1] == 'e' || input[1] == 'E') && (input[2] == 's' || input[2] == 'S');
 }
 
-static bool DosTrustHost(void *, const unsigned char *hostKey, size_t keySize, const unsigned char hash[32])
+bool DosTrustHost(const unsigned char *hostKey, size_t keySize, const unsigned char hash[32])
 {
-	bool accepted = SshData::KnownHost(g_hostArg, g_portArg, hostKey, keySize, hash, DosConfirmHost, NULL);
+	bool accepted = SshData::KnownHost(g_hostArg, g_portArg, hostKey, keySize, hash);
 	if( !accepted )
 		Log('E', "Host key untrusted, changed, or DOSSSH.DAT unavailable. Connection refused.");
 	return accepted;
 }
+
+class BiosKeyBuffer
+{
+	enum { Capacity = 128 };
+
+public:
+	struct Key
+	{
+		uint16_t code;
+		unsigned char modifiers;
+	};
+
+	BiosKeyBuffer()
+	{
+		_head = 0;
+		_count = 0;
+	}
+
+	~BiosKeyBuffer()
+	{
+		SshCrypt::Zero(_keys, sizeof(_keys));
+	}
+
+	void Clear()
+	{
+		SshCrypt::Zero(_keys, sizeof(_keys));
+		_head = 0;
+		_count = 0;
+	}
+
+	bool Push(uint16_t code, unsigned char modifiers)
+	{
+		if( _count == Capacity )
+			return false;
+
+		size_t tail = (_head + _count) % Capacity;
+		_keys[tail].code = code;
+		_keys[tail].modifiers = modifiers;
+		_count++;
+		return true;
+	}
+
+	bool Peek(Key &key) const
+	{
+		if( _count == 0 )
+			return false;
+
+		key = _keys[_head];
+		return true;
+	}
+
+	void Pop()
+	{
+		if( _count == 0 )
+			return;
+
+		_keys[_head].code = 0;
+		_keys[_head].modifiers = 0;
+		_head = (_head + 1u) % Capacity;
+		_count--;
+	}
+
+	bool Empty() const { return _count == 0; }
+
+private:
+	Key _keys[Capacity];
+	size_t _head;
+	size_t _count;
+};
 
 class UiTerminal
 {
@@ -199,49 +283,47 @@ public:
 	UiTerminal()
 	{
 		_redrawPending = false;
-		_lastDrawTick = g_transport.Ticks();
-		_keyHead = 0;
-		_keyCount = 0;
+		_lastDrawTick = 0;
 		_overflowNotified = false;
 	}
 
-	~UiTerminal()
+	void Start()
 	{
-		SshCrypt::Zero(_queued, sizeof(_queued));
+		_keys.Clear();
+		_redrawPending = false;
+		_lastDrawTick = g_transport.Ticks();
+		_overflowNotified = false;
 	}
 
-	static void Output(void *ctx, const unsigned char *bytes, size_t length)
+	void Output(const unsigned char *bytes, size_t length)
 	{
-		UiTerminal &self = *(UiTerminal *)ctx;
 		g_terminal.Feed(bytes, length);
-		self._redrawPending = true;
-		self.DrawIfDue();
+		_redrawPending = true;
+		DrawIfDue();
 	}
 
-	static int Input(void *ctx, unsigned char *buffer, size_t capacity)
+	int Input(unsigned char *buffer, size_t capacity)
 	{
-		return ((UiTerminal *)ctx)->ReadInput(buffer, capacity);
+		return ReadInput(buffer, capacity);
 	}
 
 private:
 	bool _redrawPending;
 	unsigned long _lastDrawTick;
 
-	enum { KeyCapacity = 128 };
-	uint16_t _queued[KeyCapacity];
+	BiosKeyBuffer _keys;
 
-	size_t _keyHead;
-	size_t _keyCount;
 	bool _overflowNotified;
 
 	int DrainBiosKeys()
 	{
 		while( biosIsKeyReady() )
 		{
+			unsigned char modifiers = KeyboardModifiers();
 			uint16_t key = biosKeyRead();
 			if( (key & 255u) == 0 && ((key >> 8) & 255u) == 0x2Du )
 				return -1; // Alt+X: always local
-			if( _keyCount == KeyCapacity )
+			if( !_keys.Push(key, modifiers) )
 			{
 				if( !_overflowNotified )
 				{
@@ -251,8 +333,6 @@ private:
 				}
 				continue;
 			}
-			_queued[(_keyHead + _keyCount) % KeyCapacity] = key;
-			_keyCount++;
 		}
 		return 0;
 	}
@@ -293,11 +373,11 @@ private:
 			buffer[0] = 3;
 			return 1;
 		}
-		if( !_keyCount )
+		BiosKeyBuffer::Key key;
+		if( !_keys.Peek(key) )
 			return 0;
 
-		uint16_t bios = _queued[_keyHead];
-		int ascii = KeyAscii(bios);
+		int ascii = KeyAscii(key.code);
 		unsigned char encoded[12];
 		size_t size = 0;
 		bool translated = false;
@@ -306,11 +386,10 @@ private:
 		// accommodate fewer bytes than an xterm escape sequence.
 		if( ascii == 0 || ascii == 0xE0 )
 		{
-			size = KeyToVt(bios, encoded, sizeof(encoded), g_terminal.CursorApplication());
+			size = g_terminal.KeyToVt(key.code, key.modifiers, encoded, sizeof(encoded));
 			// E0 is also a printable OEM byte (Alt+Numpad) if the BIOS
 			// supplies no scan code. Only discard unknown extended scans.
-			if( ascii == 0 || size > 1u ||
-				(ascii == 0xE0 && size == 0 && (bios & 0xFF00u) != 0) )
+			if( ascii == 0 || size > 1u || (ascii == 0xE0 && size == 0 && (key.code & 0xFF00u) != 0) )
 				translated = true;
 		}
 		if( !translated )
@@ -318,19 +397,19 @@ private:
 			if( ascii >= 128 )
 				size = DosOemToUtf8((unsigned char)ascii, encoded);
 			else
-				size = KeyToVt(bios, encoded, sizeof(encoded), g_terminal.CursorApplication());
+				size = g_terminal.KeyToVt(key.code, key.modifiers, encoded, sizeof(encoded));
 		}
 		if( size > capacity )
 			return 0; // Wait for SSH WINDOW_ADJUST; keep this key.
 
-		_queued[_keyHead] = 0;
-		_keyHead = (_keyHead + 1u) % KeyCapacity;
-		_keyCount--;
-		if( !_keyCount )
+		_keys.Pop();
+		if( _keys.Empty() )
 			_overflowNotified = false;
 		if( size )
 			memcpy(buffer, encoded, size);
+
 		SshCrypt::Zero(encoded, sizeof(encoded));
+
 		return (int)size;
 	}
 };

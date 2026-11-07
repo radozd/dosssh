@@ -49,7 +49,7 @@ bool SshPktWritePlain(const unsigned char *frame, size_t frameLength,
 	unsigned long timeoutTicks, unsigned long *sequence);
 
 /* -1 = incompatible, 0 = compatible, 1 = discard server's guessed packet. */
-int DosSshNegotiateKexinit(const unsigned char *payload, size_t payloadLength, const char **reason);
+int DosSshNegotiateKexinit(const unsigned char *payload, size_t payloadLength);
 /* Encoded payload sizes are nonzero; zero indicates insufficient space. */
 size_t SshPktMakeKexinit(const unsigned char cookie[16], unsigned char *payload, size_t capacity);
 
