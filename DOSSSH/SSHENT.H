@@ -22,6 +22,7 @@
 #define DOSSSH_SSHENT_H
 
 #include <stddef.h>
+
 #include "SSHCRYPT.H"
 #include "SSHSHA.H"
 

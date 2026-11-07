@@ -296,9 +296,9 @@ static bool CollectSoundBlaster(SshEntropy &collector)
 			high_sample = sample;
 		if( sample < 120u || sample > 136u )
 			active_samples++;
-		if( i && ((int)sample - (int)previous_sample >= 4 ||
-			(int)previous_sample - (int)sample >= 4) )
+		if( i && ((int)sample - (int)previous_sample >= 4 || (int)previous_sample - (int)sample >= 4) )
 			changed_samples++;
+
 		previous_sample = sample;
 
 		/* Direct ADC is software-paced (~250 samples/s). */
@@ -388,7 +388,9 @@ static unsigned int CollectDisk(SshEntropy &collector, unsigned char drive, int 
 	if( g_sector[510] != 0x55 || g_sector[511] != 0xAA ||
 		bytes_per_sector != 512 || reserved == 0 || fats == 0 ||
 		root_entries == 0 || sectors_per_fat == 0 )
+	{
 		return 0;
+	}
 
 	unsigned long data_start = (unsigned long)reserved + (unsigned long)fats * sectors_per_fat;
 	data_start += ((unsigned long)root_entries * 32ul + 511ul) / 512ul;

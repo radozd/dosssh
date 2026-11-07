@@ -21,6 +21,7 @@
 #include <dos.h>
 #include <stdio.h>
 #include <string.h>
+
 #include "types.h"
 #include "utils.h"
 #include "packet.h"
@@ -30,6 +31,7 @@
 #include "tcp.h"
 #include "tcpsockm.h"
 #include "timer.h"
+
 #include "SSHNET.H"
 #include "DEBUG.H"
 

@@ -23,15 +23,16 @@
 
 #ifndef DOSSSH_SSHCRYPT_H
 #define DOSSSH_SSHCRYPT_H
+
 #include <stddef.h>
 
 class SshCurve
 {
 public:
 	static void ScalarMult(unsigned char *result, const unsigned char *scalar,
-							const unsigned char *point);
+		const unsigned char *point);
 	static bool VerifyEd25519(const unsigned char *publicKey, const unsigned char *signature,
-								const unsigned char *message, size_t messageLength);
+		const unsigned char *message, size_t messageLength);
 };
 
 class SshCrypt

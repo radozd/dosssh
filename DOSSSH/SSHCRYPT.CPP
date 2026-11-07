@@ -26,6 +26,7 @@
  */
 
 #include <string.h>
+
 #include "SSHSHA.H"
 #include "SSHCRYPT.H"
 

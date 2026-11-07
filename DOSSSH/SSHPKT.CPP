@@ -20,6 +20,7 @@
 
 #include <string.h>
 #include <stddef.h>
+
 #include "SSHPKT.H"
 #include "GLOBALS.H"
 #include "SSHSHA.H"
@@ -80,7 +81,9 @@ const unsigned char *SshPktDecodePlain(const unsigned char *frame, size_t frameL
 	unsigned long packet_length = SshPktGet32(frame);
 	if( packet_length < 6 || packet_length > SSHPKT_MAX_PACKET ||
 		packet_length + 4ul != (unsigned long)frameLength || ((packet_length + 4ul) & 7ul) != 0 )
+	{
 		return NULL;
+	}
 
 	int pad = frame[4];
 	if( pad < 4 || (unsigned long)pad + 1ul >= packet_length )
@@ -130,7 +133,7 @@ const unsigned char *SshPktReadPlain(unsigned char *frame, size_t capacity,
 }
 
 bool SshPktWritePlain(const unsigned char *frame, size_t frameLength,
-						unsigned long timeout, unsigned long *sequence)
+	unsigned long timeout, unsigned long *sequence)
 {
 	size_t payload_length;
 	if( SshPktDecodePlain(frame, frameLength, payload_length) == NULL || timeout == 0 ||
@@ -346,7 +349,9 @@ bool SshExchange::IsValid() const
 {
 	if( !IsIdentificationValid(_clientIdent, _clientIdentLength) ||
 		!IsIdentificationValid(_serverIdent, _serverIdentLength) )
+	{
 		return false;
+	}
 
 	if( _clientKex == NULL || _serverKex == NULL ||
 		_clientKexLength < 62 || _serverKexLength < 62 ||
@@ -427,7 +432,7 @@ static size_t SshPktMpint(const unsigned char shared[32], unsigned char out[37])
 }
 
 bool SshPktDeriveRekey(const unsigned char shared[32], const unsigned char H[32],
-							const unsigned char sessionId[32], SSHPKT_Keys &keys)
+	const unsigned char sessionId[32], SSHPKT_Keys &keys)
 {
 	if( shared == NULL || H == NULL || sessionId == NULL )
 		return false;

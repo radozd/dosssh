@@ -21,6 +21,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
+
 #include "SSHSCAN.H"
 #include "GLOBALS.H"
 #include "SSHSHA.H"
@@ -1549,8 +1550,8 @@ private:
 };
 
 static bool SshScanRekey(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
-						const unsigned char *firstKex, size_t firstKexLength,
-						SshScanChannel *channel, unsigned long timeout)
+	const unsigned char *firstKex, size_t firstKexLength,
+	SshScanChannel *channel, unsigned long timeout)
 {
 	Log('S', "Rekey %s rx=%lu tx=%lu in=%lu out=%lu",
 		firstKex ? "server" : "client", session.inSequence, session.outSequence,

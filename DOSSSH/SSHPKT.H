@@ -22,6 +22,7 @@
 #define DOSSSH_SSHPKT_H
 
 #include <stddef.h>
+
 #include "SSHNET.H"
 #include "SSHCRYPT.H"
 #include "SSHSHA.H"
@@ -76,8 +77,7 @@ private:
 	bool _valid;
 };
 
-size_t SshPktMakeEcdhInit(const unsigned char clientPublic[32], unsigned char *payload,
-						size_t capacity);
+size_t SshPktMakeEcdhInit(const unsigned char clientPublic[32], unsigned char *payload, size_t capacity);
 
 /* Owns the authenticated key-exchange transcript. Input blobs are borrowed,
  * never copied: they must remain alive until Hash() returns. */

@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
 #include "VT100.H"
 #include "ENCODING.H"
 #include "UTIL.H"

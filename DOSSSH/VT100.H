@@ -23,6 +23,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include "ENCODING.H"
 
 struct VtCell

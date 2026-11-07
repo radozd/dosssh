@@ -19,6 +19,7 @@
 */
 
 #include <string.h>
+
 #include "SSHSHA.H"
 
 const unsigned long SHA_WORD32 = 0xFFFFFFFFul;

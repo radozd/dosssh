@@ -52,7 +52,7 @@
 char g_hostArg[HOSTNAME_MAX_LEN];
 uint16_t g_portArg;
 static char g_userArg[USERNAME_MAX_LEN];
-bool g_debugArg = false;
+static bool g_debugArg = false;
 
 MtcpTransport g_transport;
 const char *g_sshReason = "SSH connection failed";

@@ -21,7 +21,9 @@
 #ifndef DOSSSH_GLOBALS_H
 #define DOSSSH_GLOBALS_H
 
+#include <stddef.h>
 #include <stdint.h>
+
 #include "SSHNET.H"
 #include "VT100.H"
 
@@ -31,7 +33,6 @@ class UiScreen;
 
 extern char g_hostArg[HOSTNAME_MAX_LEN];
 extern uint16_t g_portArg;
-extern bool g_debugArg;
 
 extern MtcpTransport g_transport;
 extern Vt100 g_terminal;
