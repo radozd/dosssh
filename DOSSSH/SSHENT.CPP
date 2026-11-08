@@ -23,12 +23,12 @@
 #include <conio.h>
 #include <dos.h>
 #include <time.h>
-#include <bios.h>
 
 #include "inlines.h"
 
 #include "SSHENT.H"
 #include "CONFIG.H"
+#include "INPUT.H"
 
 SshEntropy::SshEntropy()
 {
@@ -175,14 +175,6 @@ static unsigned long PitStamp()
 	return (before_ticks << 16) + 65535ul - (low | (high << 8));
 }
 
-static void MouseCursor(bool visible)
-{
-	union REGS regs;
-	memset(&regs, 0, sizeof(regs));
-	regs.x.ax = visible ? 1u : 2u;
-	int86(0x33, &regs, &regs);
-}
-
 static void ShowEntropyProgress(unsigned int percent, unsigned int &shown, bool haveMouse)
 {
 	unsigned int value = percent == 100u ? 100u : (percent / 5u) * 5u;
@@ -190,12 +182,12 @@ static void ShowEntropyProgress(unsigned int percent, unsigned int &shown, bool 
 		return;
 
 	if( haveMouse )
-		MouseCursor(false);
+		DosMouseCursor(false);
 
 	printf("\rEntropy input: %3u%%", value);
 	fflush(stdout);
 	if( haveMouse )
-		MouseCursor(true);
+		DosMouseCursor(true);
 	shown = value;
 }
 
@@ -355,29 +347,9 @@ static void CollectMachineState(SshEntropy &collector)
 	SshCrypt::Zero(clocks, sizeof(clocks));
 }
 
-static bool MousePresent()
-{
-	union REGS regs;
-	struct SREGS segregs;
-	memset(&regs, 0, sizeof(regs));
-	memset(&segregs, 0, sizeof(segregs));
-	regs.x.ax = 0x3533;
-	intdosx(&regs, &regs, &segregs);
-	if( (segregs.es == 0 && regs.x.bx == 0) || *(const unsigned char far *)MK_FP(segregs.es, regs.x.bx) == 0xCF )
-		return false;
-	return true;
-}
-
 static bool CollectInput(SshEntropy &collector)
 {
-	bool have_mouse = false;
-	if( MousePresent() )
-	{
-		union REGS regs;
-		memset(&regs, 0, sizeof(regs));
-		int86(0x33, &regs, &regs);
-		have_mouse = regs.x.ax == 0xFFFFu;
-	}
+	bool have_mouse = DosMouseInit();
 
 	printf("Press keys and/or move the mouse until progress reaches 100%%. Esc cancels.\n");
 
@@ -397,16 +369,16 @@ static bool CollectInput(SshEntropy &collector)
 
 	ShowEntropyProgress(0u, shown, false);
 	if( have_mouse )
-		MouseCursor(true);
+		DosMouseCursor(true);
 
 	for( ;; )
 	{
 		unsigned long now = PitStamp();
 		unsigned int credit = 0;
 
-		if( biosIsKeyReady() )
+		if( DosKeyReady() )
 		{
-			unsigned int key = biosKeyRead();
+			unsigned int key = DosKeyRead();
 			if( (key & 255u) == 27u || (key & 255u) == 3u )
 				break;
 
@@ -426,18 +398,15 @@ static bool CollectInput(SshEntropy &collector)
 		if( have_mouse && (unsigned long)(now - last_poll) >= mouse_poll_interval )
 		{
 			last_poll = now;
-			union REGS regs;
-			memset(&regs, 0, sizeof(regs));
-			regs.x.ax = 0x000B;
-			int86(0x33, &regs, &regs);
-			int dx = (short)regs.x.cx;
-			int dy = (short)regs.x.dx;
+			int dx;
+			int dy;
+			DosMouseMotion(dx, dy);
 			if( dx || dy )
 			{
 				unsigned char event[12];
 				Store32(event, now);
-				Store16(event + 4, regs.x.cx);
-				Store16(event + 6, regs.x.dx);
+				Store16(event + 4, dx);
+				Store16(event + 6, dy);
 				Store32(event + 8, now - last_motion);
 				collector.AddState(event, sizeof(event));
 				last_motion = now;
@@ -473,7 +442,7 @@ static bool CollectInput(SshEntropy &collector)
 	}
 
 	if( have_mouse )
-		MouseCursor(false);
+		DosMouseCursor(false);
 	if( points >= required_points )
 		ShowEntropyProgress(100u, shown, false);
 	printf("\n");

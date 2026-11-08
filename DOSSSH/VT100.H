@@ -26,6 +26,8 @@
 
 #include "ENCODING.H"
 
+struct DosMouseEvent;
+
 struct VtCell
 {
 	unsigned char ch;
@@ -47,6 +49,8 @@ public:
 	void Feed(const unsigned char *bytes, size_t size);
 	size_t ReadReply(unsigned char *out, size_t capacity);
 	size_t KeyToVt(unsigned int biosKey, unsigned int modifiers, unsigned char *out, size_t capacity);
+	size_t MouseToVt(const DosMouseEvent &event, unsigned int modifiers, unsigned char *out, size_t capacity) const;
+	unsigned int MouseMode() const { return _mouseMode; }
 
 	// Dirty ranges are inclusive; consumed by the DOS video driver.
 	const VtCell *Row(int y) const;
@@ -104,6 +108,8 @@ private:
 	char _private;
 	DosUtf8Decoder _utf8;
 	bool _screenFailed;
+	unsigned int _mouseMode;
+	bool _mouseSgr;
 
 	void ResetState();
 	void Put(unsigned char ch);

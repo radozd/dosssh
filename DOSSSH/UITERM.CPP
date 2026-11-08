@@ -18,19 +18,17 @@
 	along with DOSSSH. If not, see <https://www.gnu.org/licenses/>.
 */
 
-#include <bios.h>
-
-#include "inlines.h"
+#include "INPUT.H"
 
 int DosGetKey()
 {
-	while( !biosIsKeyReady() )
+	while( !DosKeyReady() )
 	{
 		if( g_transport.Aborted() )
 			return -1;
 		g_transport.Pump();
 	}
-	return (int)biosKeyRead();
+	return (int)DosKeyRead();
 }
 
 static bool DosUsername(char *username, size_t capacity)
@@ -208,75 +206,6 @@ bool DosTrustHost(const unsigned char *hostKey, size_t keySize, const unsigned c
 	return accepted;
 }
 
-class BiosKeyBuffer
-{
-	enum { Capacity = 128 };
-
-public:
-	struct Key
-	{
-		uint16_t code;
-		unsigned char modifiers;
-	};
-
-	BiosKeyBuffer()
-	{
-		_head = 0;
-		_count = 0;
-	}
-
-	~BiosKeyBuffer()
-	{
-		SshCrypt::Zero(_keys, sizeof(_keys));
-	}
-
-	void Clear()
-	{
-		SshCrypt::Zero(_keys, sizeof(_keys));
-		_head = 0;
-		_count = 0;
-	}
-
-	bool Push(uint16_t code, unsigned char modifiers)
-	{
-		if( _count == Capacity )
-			return false;
-
-		size_t tail = (_head + _count) % Capacity;
-		_keys[tail].code = code;
-		_keys[tail].modifiers = modifiers;
-		_count++;
-		return true;
-	}
-
-	bool Peek(Key &key) const
-	{
-		if( _count == 0 )
-			return false;
-
-		key = _keys[_head];
-		return true;
-	}
-
-	void Pop()
-	{
-		if( _count == 0 )
-			return;
-
-		_keys[_head].code = 0;
-		_keys[_head].modifiers = 0;
-		_head = (_head + 1u) % Capacity;
-		_count--;
-	}
-
-	bool Empty() const { return _count == 0; }
-
-private:
-	Key _keys[Capacity];
-	size_t _head;
-	size_t _count;
-};
-
 class UiTerminal
 {
 public:
@@ -285,6 +214,10 @@ public:
 		_redrawPending = false;
 		_lastDrawTick = 0;
 		_overflowNotified = false;
+		_mouseAvailable = false;
+		_mouseVisible = false;
+		_mouseReportLength = 0;
+		_mouseReportOffset = 0;
 	}
 
 	void Start()
@@ -293,11 +226,39 @@ public:
 		_redrawPending = false;
 		_lastDrawTick = g_transport.Ticks();
 		_overflowNotified = false;
+		_mouseAvailable = DosMouseInit();
+		_mouseVisible = false;
+		_mouseReportLength = 0;
+		_mouseReportOffset = 0;
+		if( _mouseAvailable )
+		{
+			DosMouseRange(g_terminal.Cols(), g_terminal.Rows());
+			DosMouseSync();
+		}
+	}
+
+	void Stop()
+	{
+		if( _mouseVisible )
+			DosMouseCursor(false);
+		_mouseVisible = false;
+		_mouseAvailable = false;
 	}
 
 	void Output(const unsigned char *bytes, size_t length)
 	{
 		g_terminal.Feed(bytes, length);
+		if( _mouseAvailable )
+		{
+			bool visible = g_terminal.MouseMode() != 0;
+			if( visible != _mouseVisible )
+			{
+				DosMouseCursor(visible);
+				_mouseVisible = visible;
+				if( visible )
+					DosMouseSync();
+			}
+		}
 		_redrawPending = true;
 		DrawIfDue();
 	}
@@ -314,27 +275,38 @@ private:
 	BiosKeyBuffer _keys;
 
 	bool _overflowNotified;
+	bool _mouseAvailable;
+	bool _mouseVisible;
+	unsigned char _mouseReport[32];
+	size_t _mouseReportLength;
+	size_t _mouseReportOffset;
 
-	int DrainBiosKeys()
+	int FlushMouse(unsigned char *buffer, size_t capacity)
 	{
-		while( biosIsKeyReady() )
+		size_t count = _mouseReportLength - _mouseReportOffset;
+		if( count > capacity )
+			count = capacity;
+		memcpy(buffer, _mouseReport + _mouseReportOffset, count);
+		_mouseReportOffset += count;
+		if( _mouseReportOffset == _mouseReportLength )
 		{
-			unsigned char modifiers = KeyboardModifiers();
-			uint16_t key = biosKeyRead();
-			if( (key & 255u) == 0 && ((key >> 8) & 255u) == 0x2Du )
-				return -1; // Alt+X: always local
-			if( !_keys.Push(key, modifiers) )
-			{
-				if( !_overflowNotified )
-				{
-					printf("\a");
-					fflush(stdout);
-					_overflowNotified = true;
-				}
-				continue;
-			}
+			_mouseReportLength = 0;
+			_mouseReportOffset = 0;
 		}
-		return 0;
+		return (int)count;
+	}
+
+	int ReadMouse(unsigned char *buffer, size_t capacity)
+	{
+		if( !_mouseAvailable || !g_terminal.MouseMode() )
+			return 0;
+
+		DosMouseEvent event;
+		if( !DosMousePoll(event) )
+			return 0;
+
+		_mouseReportLength = g_terminal.MouseToVt(event, KeyboardModifiers(), _mouseReport, sizeof(_mouseReport));
+		return FlushMouse(buffer, capacity);
 	}
 
 	void DrawIfDue()
@@ -347,7 +319,11 @@ private:
 		// At most one VGA update per 55-ms BIOS timer tick.
 		if( now - _lastDrawTick < 1ul )
 			return;
+		if( _mouseVisible )
+			DosMouseCursor(false);
 		g_screen.Draw();
+		if( _mouseVisible )
+			DosMouseCursor(true);
 		_redrawPending = false;
 		_lastDrawTick = now;
 	}
@@ -358,8 +334,15 @@ private:
 		if( !g_terminal.Ok() )
 			return -2;
 
-		if( DrainBiosKeys() == -1 )
+		int poll = _keys.Poll();
+		if( poll == -1 )
 			return -1;
+		if( poll == 1 && !_overflowNotified )
+		{
+			printf("\a");
+			fflush(stdout);
+			_overflowNotified = true;
+		}
 
 		if( capacity == 0 )
 			return 0; // command-only probe; never dereference buffer
@@ -367,6 +350,8 @@ private:
 		size_t count = g_terminal.ReadReply(buffer, capacity);
 		if( count )
 			return (int)count;
+		if( _mouseReportLength )
+			return FlushMouse(buffer, capacity);
 
 		if( g_transport.TakeCtrlc() )
 		{
@@ -375,7 +360,7 @@ private:
 		}
 		BiosKeyBuffer::Key key;
 		if( !_keys.Peek(key) )
-			return 0;
+			return ReadMouse(buffer, capacity);
 
 		int ascii = KeyAscii(key.code);
 		unsigned char encoded[12];

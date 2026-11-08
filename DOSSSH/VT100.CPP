@@ -25,6 +25,7 @@
 #include "VT100.H"
 #include "ENCODING.H"
 #include "UTIL.H"
+#include "INPUT.H"
 
 static const char g_ansiToEga[8] = { 0, 4, 2, 6, 1, 5, 3, 7 };
 
@@ -100,6 +101,8 @@ void Vt100::ResetState()
 	_paramIndex = 0;
 	_utf8.Reset();
 	_replyLength = 0;
+	_mouseMode = 0;
+	_mouseSgr = false;
 }
 
 void Vt100::Reset()
@@ -436,6 +439,15 @@ void Vt100::Csi(char finalByte)
 			{
 				if( _params[i] == 1 )
 					_screenState.cursorApplication = enabled;
+				if( _params[i] == 9 || _params[i] == 1000 || _params[i] == 1002 || _params[i] == 1003 )
+				{
+					if( enabled )
+						_mouseMode = _params[i];
+					else if( _mouseMode == (unsigned int)_params[i] )
+						_mouseMode = 0;
+				}
+				if( _params[i] == 1006 )
+					_mouseSgr = enabled;
 				if( _params[i] == 47 || _params[i] == 1047 || _params[i] == 1049 )
 					AlternateScreen(enabled);
 				if( _params[i] == 1048 )
@@ -787,6 +799,48 @@ static size_t CopyKeySequence(const char *sequence, unsigned char *out, size_t c
 		return 0;
 	memcpy(out, sequence, length);
 	return length;
+}
+
+size_t Vt100::MouseToVt(const DosMouseEvent &event, unsigned int modifiers, unsigned char *out, size_t capacity) const
+{
+	if( !_mouseMode || event.x >= (unsigned int)_cols || event.y >= (unsigned int)_rows )
+		return 0;
+
+	unsigned int button_code = event.type == DOS_MOUSE_MOVE ? 35u : event.button;
+	bool released = event.type == DOS_MOUSE_RELEASE;
+	if( event.type == DOS_MOUSE_MOVE )
+	{
+		if( _mouseMode != 1003u && (_mouseMode != 1002u || !event.buttons) )
+			return 0;
+		if( event.buttons & 1u )
+			button_code = 32u;
+		else if( event.buttons & 4u )
+			button_code = 33u;
+		else if( event.buttons & 2u )
+			button_code = 34u;
+	}
+	if( _mouseMode == 9 && released )
+		return 0;
+
+	unsigned int modifiers_code = ((modifiers & VT_KEY_SHIFT) ? 4u : 0u) +
+		((modifiers & VT_KEY_ALT) ? 8u : 0u) + ((modifiers & VT_KEY_CTRL) ? 16u : 0u);
+	unsigned int code = button_code + modifiers_code;
+	if( _mouseSgr )
+	{
+		char sequence[32];
+		SprintfTrunc(sequence, sizeof(sequence), "\033[<%u;%u;%u%c", code, event.x + 1u, event.y + 1u, released ? 'm' : 'M');
+		return CopyKeySequence(sequence, out, capacity);
+	}
+	if( capacity < 6 )
+		return 0;
+
+	out[0] = 27;
+	out[1] = '[';
+	out[2] = 'M';
+	out[3] = (unsigned char)(32u + (released ? 3u : button_code) + modifiers_code);
+	out[4] = (unsigned char)(33u + event.x);
+	out[5] = (unsigned char)(33u + event.y);
+	return 6;
 }
 
 static unsigned int KeyModifierParameter(unsigned int modifiers)

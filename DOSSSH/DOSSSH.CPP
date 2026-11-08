@@ -43,6 +43,7 @@
 #include "SSHNET.H"
 #include "CONFIG.H"
 #include "UTIL.H"
+#include "INPUT.H"
 #include "ENCODING.H"
 #include "DEBUG.H"
 #include "GLOBALS.H"
@@ -170,6 +171,7 @@ static void RestoreVideo()
 	if( g_screen.IsCaptured() )
 	{
 		g_transport.SetInteractive(false);
+		g_uiTerminal.Stop();
 		g_screen.Restore();
 	}
 }

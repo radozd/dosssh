@@ -20,8 +20,6 @@
 
 #include <malloc.h>
 #include <mem.h>
-#include <bios.h>
-#include <dos.h>
 #include <stdio.h>
 
 #include "inlines.h"
@@ -146,28 +144,3 @@ void ProbeFreeMem(char *buf, size_t bufSize)
 
 	SprintfTrunc(buf, bufSize, "Heap=%s, Stack=%d B", sizebuf, stack);
 }
-
-// Keyboard
-
-int KeyAscii(uint16_t key)
-{
-	return key & 0x00FF;
-}
-
-void DosFlushKeys()
-{
-	while( biosIsKeyReady() )
-		biosKeyRead();
-}
-
-unsigned char KeyboardModifiers()
-{
-	union REGS regs;
-	regs.h.ah = 0x02;
-	int86(0x16, &regs, &regs);
-	unsigned char flags = regs.h.al;
-	return (unsigned char)(((flags & 0x03u) ? VT_KEY_SHIFT : 0u) |
-		((flags & 0x04u) ? VT_KEY_CTRL : 0u) |
-		((flags & 0x08u) ? VT_KEY_ALT : 0u));
-}
-
