@@ -38,11 +38,11 @@
 static const int SSHDATA_MAX_HOSTS = 128;
 static const size_t SSHDATA_SEED_HEX = 128;
 static const size_t SSHDATA_KEY_BASE64 = 68;
-static char g_dataPath[] = "C:\\DOSSSH.DAT";
-static char g_tempPath[] = "C:\\DOSSSH.TMP";
-static char g_backPath[] = "C:\\DOSSSH.BAK";
-static const char g_base64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-static const char g_keyType[] = " ssh-ed25519 ";
+static char s_dataPath[] = "C:\\DOSSSH.DAT";
+static char s_tempPath[] = "C:\\DOSSSH.TMP";
+static char s_backPath[] = "C:\\DOSSSH.BAK";
+static const char s_base64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static const char s_keyType[] = " ssh-ed25519 ";
 
 // DOS 21h/36h reports FFFFh in AX if the specified drive is invalid.
 // This is a one-based drive number: 1=A, 2=B, 3=C.
@@ -66,15 +66,15 @@ bool SshData::Select(unsigned char launchedDrive)
 		drive = launchedDrive;
 	}
 
-	g_dataPath[0] = (char)('A' + drive);
-	g_tempPath[0] = (char)('A' + drive);
-	g_backPath[0] = (char)('A' + drive);
+	s_dataPath[0] = (char)('A' + drive);
+	s_tempPath[0] = (char)('A' + drive);
+	s_backPath[0] = (char)('A' + drive);
 	return true;
 }
 
 unsigned char SshData::Drive()
 {
-	return (unsigned char)(g_dataPath[0] - 'A');
+	return (unsigned char)(s_dataPath[0] - 'A');
 }
 
 static int SshDataReadLine(FILE *file, char *line, size_t capacity)
@@ -144,8 +144,8 @@ static int SshDataBase64Digit(char ch)
 {
 	if( !ch )
 		return -1;
-	const char *p = strchr(g_base64, ch);
-	return p ? (int)(p - g_base64) : -1;
+	const char *p = strchr(s_base64, ch);
+	return p ? (int)(p - s_base64) : -1;
 }
 
 static bool SshDataKeyValid(const unsigned char *key)
@@ -181,10 +181,10 @@ static void SshDataWriteBase64(const unsigned char key[51], char text[69])
 		unsigned int a = key[i];
 		unsigned int b = key[i + 1];
 		unsigned int c = key[i + 2];
-		text[j] = g_base64[a >> 2];
-		text[j + 1] = g_base64[((a & 3u) << 4) | (b >> 4)];
-		text[j + 2] = g_base64[((b & 15u) << 2) | (c >> 6)];
-		text[j + 3] = g_base64[c & 63u];
+		text[j] = s_base64[a >> 2];
+		text[j + 1] = s_base64[((a & 3u) << 4) | (b >> 4)];
+		text[j + 2] = s_base64[((b & 15u) << 2) | (c >> 6)];
+		text[j + 3] = s_base64[c & 63u];
 	}
 	text[SSHDATA_KEY_BASE64] = '\0';
 }
@@ -272,8 +272,8 @@ static bool SshDataReadHost(char *line, unsigned char key[51])
 
 	size_t host_length = strlen(host);
 	if( !SshDataStoredName(host, host_length) ||
-		strlen(line) != host_length + sizeof(g_keyType) - 1 + SSHDATA_KEY_BASE64 ||
-		strncmp(line + host_length, g_keyType, sizeof(g_keyType) - 1) != 0 ||
+		strlen(line) != host_length + sizeof(s_keyType) - 1 + SSHDATA_KEY_BASE64 ||
+		strncmp(line + host_length, s_keyType, sizeof(s_keyType) - 1) != 0 ||
 		!SshDataReadKey(text, key) )
 	{
 		return false;
@@ -342,7 +342,7 @@ static bool SshDataVerify(const char *path, unsigned char seed[64],
 
 static bool SshDataRecover()
 {
-	FILE *file = fopen(g_dataPath, "rb");
+	FILE *file = fopen(s_dataPath, "rb");
 	if( file )
 	{
 		fclose(file);
@@ -351,18 +351,18 @@ static bool SshDataRecover()
 	if( errno != ENOENT )
 		return false;
 
-	file = fopen(g_backPath, "rb");
+	file = fopen(s_backPath, "rb");
 	if( file )
 	{
 		fclose(file);
 
 		unsigned char seed[64];
-		bool valid = SshDataVerify(g_backPath, seed, NULL, NULL, NULL, NULL);
+		bool valid = SshDataVerify(s_backPath, seed, NULL, NULL, NULL, NULL);
 		SshCrypt::Zero(seed, sizeof(seed));
 		if( !valid )
 			return false;
 
-		return rename(g_backPath, g_dataPath) == 0;
+		return rename(s_backPath, s_dataPath) == 0;
 	}
 	return errno == ENOENT;
 }
@@ -374,12 +374,12 @@ bool SshData::LoadSeed(unsigned char seed[64], bool &present)
 	if( !SshDataRecover() )
 		return false;
 
-	FILE *file = fopen(g_dataPath, "rb");
+	FILE *file = fopen(s_dataPath, "rb");
 	if( file )
 	{
 		fclose(file);
 		present = true;
-		return SshDataVerify(g_dataPath, seed, NULL, NULL, NULL, NULL);
+		return SshDataVerify(s_dataPath, seed, NULL, NULL, NULL, NULL);
 	}
 	return errno == ENOENT;
 }
@@ -395,7 +395,7 @@ static bool SshDataCommit(const unsigned char newSeed[64], const char *newHost, 
 	}
 
 	int old_count = 0;
-	bool valid = !had_file || SshDataVerify(g_dataPath, old_seed, NULL, NULL, NULL, &old_count);
+	bool valid = !had_file || SshDataVerify(s_dataPath, old_seed, NULL, NULL, NULL, &old_count);
 	SshCrypt::Zero(old_seed, sizeof(old_seed));
 	if( !valid || (newHost && (old_count == SSHDATA_MAX_HOSTS || !newKey || !SshDataKeyValid(newKey))) )
 		return false;
@@ -404,7 +404,7 @@ static bool SshDataCommit(const unsigned char newSeed[64], const char *newHost, 
 	char line[256];
 	if( had_file )
 	{
-		old = fopen(g_dataPath, "rb");
+		old = fopen(s_dataPath, "rb");
 		if( !old )
 			return false;
 
@@ -418,8 +418,8 @@ static bool SshDataCommit(const unsigned char newSeed[64], const char *newHost, 
 	}
 
 	// An abandoned TMP has not been committed; the validated DAT wins.
-	remove(g_tempPath);
-	FILE *out = fopen(g_tempPath, "wb");
+	remove(s_tempPath);
+	FILE *out = fopen(s_tempPath, "wb");
 	if( !out )
 	{
 		if( old )
@@ -452,35 +452,35 @@ static bool SshDataCommit(const unsigned char newSeed[64], const char *newHost, 
 		unsigned char verified[64];
 		int match = 0;
 		int count = 0;
-		ok = SshDataVerify(g_tempPath, verified, newHost, newKey, newHost ? &match : NULL, &count) &&
+		ok = SshDataVerify(s_tempPath, verified, newHost, newKey, newHost ? &match : NULL, &count) &&
 			SshCrypt::Equal(verified, newSeed, sizeof(verified)) &&
 			count == old_count + (newHost ? 1 : 0) && (!newHost || match == 1);
 		SshCrypt::Zero(verified, sizeof(verified));
 	}
 	if( !ok )
 	{
-		remove(g_tempPath);
+		remove(s_tempPath);
 		return false;
 	}
 
-	if( had_file && remove(g_backPath) != 0 && errno != ENOENT )
+	if( had_file && remove(s_backPath) != 0 && errno != ENOENT )
 	{
-		remove(g_tempPath);
+		remove(s_tempPath);
 		return false;
 	}
-	if( had_file && rename(g_dataPath, g_backPath) != 0 )
+	if( had_file && rename(s_dataPath, s_backPath) != 0 )
 	{
-		remove(g_tempPath);
+		remove(s_tempPath);
 		return false;
 	}
-	if( rename(g_tempPath, g_dataPath) != 0 )
+	if( rename(s_tempPath, s_dataPath) != 0 )
 	{
 		if( had_file )
-			rename(g_backPath, g_dataPath);
+			rename(s_backPath, s_dataPath);
 		return false;
 	}
 	if( had_file )
-		remove(g_backPath);
+		remove(s_backPath);
 	return true;
 }
 
@@ -498,7 +498,7 @@ bool SshData::KnownHost(const char *host, unsigned int port, const unsigned char
 
 	unsigned char seed[64];
 	int match;
-	if( !SshDataVerify(g_dataPath, seed, lookup, key, &match, NULL) )
+	if( !SshDataVerify(s_dataPath, seed, lookup, key, &match, NULL) )
 	{
 		SshCrypt::Zero(seed, sizeof(seed));
 		return false;
@@ -525,7 +525,7 @@ bool SshData::KnownHost(const char *host, unsigned int port, const unsigned char
 	}
 
 	int current;
-	if( !SshDataVerify(g_dataPath, seed, lookup, key, &current, NULL) || current != 0 )
+	if( !SshDataVerify(s_dataPath, seed, lookup, key, &current, NULL) || current != 0 )
 	{
 		SshCrypt::Zero(seed, sizeof(seed));
 		return false;

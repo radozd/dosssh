@@ -37,21 +37,28 @@
 
 /* DOS interrupt handlers need file-scope state; the connection itself
  * belongs to the one MtcpTransport instance. */
-static volatile bool g_cancelled = false;
-static volatile bool g_shellMode = false;
-static volatile bool g_ctrlC = false;
+static volatile bool s_cancelled = false;
+static volatile bool s_shellMode = false;
+static volatile bool s_ctrlC = false;
 
 MtcpTransport::MtcpTransport()
 {
 	_socket = NULL;
 	_stackStarted = false;
 	_statsTick = 0;
-	_driverDrops = 0;
-	_tcpDrops = 0;
-	_tcpSeqErrors = 0;
-	_tcpResends = 0;
-	_driverRetries = 0;
-	_driverErrors = 0;
+	memset(&_stats, 0, sizeof(_stats));
+}
+
+MtcpTransport::Stats MtcpTransport::ReadStats()
+{
+	Stats s;
+	s.driverDrops = Packets_dropped;
+	s.tcpDrops = Tcp::Packets_DroppedNoSpace;
+	s.tcpSeqErrors = Tcp::Packets_SeqOrAckError;
+	s.tcpResends = Tcp::Packets_Retransmitted;
+	s.driverRetries = Packets_send_retries;
+	s.driverErrors = Packets_send_errs;
+	return s;
 }
 
 void MtcpTransport::DebugStats(bool force)
@@ -65,58 +72,48 @@ void MtcpTransport::DebugStats(bool force)
 
 	_statsTick = now;
 
-	uint32_t driver_drops = Packets_dropped;
-	uint32_t tcp_drops = Tcp::Packets_DroppedNoSpace;
-	uint32_t seq_errors = Tcp::Packets_SeqOrAckError;
-	uint32_t resends = Tcp::Packets_Retransmitted;
-	uint32_t retries = Packets_send_retries;
-	uint32_t errors = Packets_send_errs;
-	if( force || driver_drops != _driverDrops || tcp_drops != _tcpDrops ||
-		seq_errors != _tcpSeqErrors || resends != _tcpResends ||
-		retries != _driverRetries || errors != _driverErrors )
+	Stats s = ReadStats();
+	if( force || s.driverDrops != _stats.driverDrops || s.tcpDrops != _stats.tcpDrops ||
+		s.tcpSeqErrors != _stats.tcpSeqErrors || s.tcpResends != _stats.tcpResends ||
+		s.driverRetries != _stats.driverRetries || s.driverErrors != _stats.driverErrors )
 	{
 		Log('N', "TCP drops driver=%lu (+%lu) full=%lu (+%lu)",
-			driver_drops, driver_drops - _driverDrops, tcp_drops, tcp_drops - _tcpDrops);
+			s.driverDrops, s.driverDrops - _stats.driverDrops, s.tcpDrops, s.tcpDrops - _stats.tcpDrops);
 		Log('N', "TCP seq=%lu (+%lu) resend=%lu (+%lu) retry=%lu (+%lu) err=%lu (+%lu)",
-			seq_errors, seq_errors - _tcpSeqErrors, resends, resends - _tcpResends,
-			retries, retries - _driverRetries, errors, errors - _driverErrors);
+			s.tcpSeqErrors, s.tcpSeqErrors - _stats.tcpSeqErrors, s.tcpResends, s.tcpResends - _stats.tcpResends,
+			s.driverRetries, s.driverRetries - _stats.driverRetries, s.driverErrors, s.driverErrors - _stats.driverErrors);
 	}
-	_driverDrops = driver_drops;
-	_tcpDrops = tcp_drops;
-	_tcpSeqErrors = seq_errors;
-	_tcpResends = resends;
-	_driverRetries = retries;
-	_driverErrors = errors;
+	_stats = s;
 }
 
 static void __interrupt __far OnBreak()
 {
-	g_cancelled = true;
+	s_cancelled = true;
 }
 
 static void __interrupt __far OnCtrlC()
 {
-	if( g_shellMode )
-		g_ctrlC = true;
+	if( s_shellMode )
+		s_ctrlC = true;
 	else
-		g_cancelled = true;
+		s_cancelled = true;
 }
 
 bool MtcpTransport::Aborted() const
 {
-	return g_cancelled;
+	return s_cancelled;
 }
 
 void MtcpTransport::SetInteractive(bool enabled)
 {
-	g_shellMode = enabled;
-	g_ctrlC = false;
+	s_shellMode = enabled;
+	s_ctrlC = false;
 }
 
 bool MtcpTransport::TakeCtrlc()
 {
-	bool result = g_ctrlC;
-	g_ctrlC = false;
+	bool result = s_ctrlC;
+	s_ctrlC = false;
 	return result;
 }
 
@@ -139,21 +136,16 @@ void MtcpTransport::Pump()
 
 bool MtcpTransport::Start()
 {
-	g_cancelled = false;
-	g_shellMode = false;
-	g_ctrlC = false;
+	s_cancelled = false;
+	s_shellMode = false;
+	s_ctrlC = false;
 	if( Utils::parseEnv() != 0 )
 		return false;
 	if( Utils::initStack(1, 6, OnBreak, OnCtrlC) != 0 )
 		return false;
 	_stackStarted = true;
 	_statsTick = Ticks();
-	_driverDrops = Packets_dropped;
-	_tcpDrops = Tcp::Packets_DroppedNoSpace;
-	_tcpSeqErrors = Tcp::Packets_SeqOrAckError;
-	_tcpResends = Tcp::Packets_Retransmitted;
-	_driverRetries = Packets_send_retries;
-	_driverErrors = Packets_send_errs;
+	_stats = ReadStats();
 	Log('N', "mTCP started free=%d", Buffer_lowFreeCount);
 	return true;
 }
@@ -177,14 +169,14 @@ bool MtcpTransport::ConnectHost(const char *host, unsigned int port)
 		return false;
 	}
 
-	while( Dns::isQueryPending() && !g_cancelled )
+	while( Dns::isQueryPending() && !s_cancelled )
 	{
 		PACKET_PROCESS_SINGLE;
 		Arp::driveArp();
 		Dns::drivePendingQuery();
 		DebugStats(false);
 	}
-	if( g_cancelled )
+	if( s_cancelled )
 	{
 		Log('E', "DNS resolution cancelled");
 		return false;
@@ -221,7 +213,7 @@ bool MtcpTransport::ConnectHost(const char *host, unsigned int port)
 	if( rc == TCP_RC_GOOD )
 	{
 		clockTicks_t start = TIMER_GET_CURRENT();
-		while( !g_cancelled && !_socket->isConnectComplete() && !_socket->isClosed() )
+		while( !s_cancelled && !_socket->isConnectComplete() && !_socket->isClosed() )
 		{
 			Pump();
 			if( Timer_diff(start, TIMER_GET_CURRENT()) >= TIMER_SECS_TO_TICKS(15) )
@@ -231,11 +223,11 @@ bool MtcpTransport::ConnectHost(const char *host, unsigned int port)
 			}
 		}
 	}
-	if( !g_cancelled && rc == TCP_RC_GOOD && _socket->isConnectComplete() )
+	if( !s_cancelled && rc == TCP_RC_GOOD && _socket->isConnectComplete() )
 		return true;
 
-	Log('N', "TCP fail rc=%d reason=%d cancelled=%d", rc, _socket->closeReason, g_cancelled);
-	if( g_cancelled )
+	Log('N', "TCP fail rc=%d reason=%d cancelled=%d", rc, _socket->closeReason, s_cancelled);
+	if( s_cancelled )
 		Log('E', "TCP connection cancelled");
 	else if( _socket->closeReason == 1 )
 		Log('E', "TCP connection refused");
@@ -248,7 +240,7 @@ bool MtcpTransport::ConnectHost(const char *host, unsigned int port)
 
 int MtcpTransport::ReadSome(unsigned char *dest, size_t length)
 {
-	if( _socket == NULL || g_cancelled || dest == NULL || length > 32767u )
+	if( _socket == NULL || s_cancelled || dest == NULL || length > 32767u )
 		return -1;
 
 	int16_t result = _socket->recv(dest, length);
@@ -262,7 +254,7 @@ int MtcpTransport::ReadSome(unsigned char *dest, size_t length)
 
 int MtcpTransport::WriteSome(const unsigned char *source, size_t length)
 {
-	if( _socket == NULL || g_cancelled || source == NULL || length > 32767u )
+	if( _socket == NULL || s_cancelled || source == NULL || length > 32767u )
 		return -1;
 	// mTCP returns BYTES QUEUED, possibly zero, not a POSIX success code.
 	int16_t result = _socket->send((uint8_t *)source, length);

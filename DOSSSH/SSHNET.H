@@ -42,16 +42,22 @@ public:
 	void Stop();
 
 private:
+	struct Stats
+	{
+		unsigned long driverDrops;
+		unsigned long tcpDrops;
+		unsigned long tcpSeqErrors;
+		unsigned long tcpResends;
+		unsigned long driverRetries;
+		unsigned long driverErrors;
+	};
+
+	static Stats ReadStats();
 	void DebugStats(bool force);
 	TcpSocket *_socket;
 	bool _stackStarted;
 	unsigned long _statsTick;
-	unsigned long _driverDrops;
-	unsigned long _tcpDrops;
-	unsigned long _tcpSeqErrors;
-	unsigned long _tcpResends;
-	unsigned long _driverRetries;
-	unsigned long _driverErrors;
+	Stats _stats;
 };
 
 

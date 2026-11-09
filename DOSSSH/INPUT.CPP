@@ -128,18 +128,16 @@ void BiosKeyBuffer::Pop()
 
 // Mouse
 
-static unsigned int g_mouseCols = 0;
-static unsigned int g_mouseRows = 0;
-static unsigned int g_mouseX = 0;
-static unsigned int g_mouseY = 0;
-static unsigned int g_mouseButtons = 0;
-
 struct DosMouseState
 {
 	unsigned int x;
 	unsigned int y;
 	unsigned int buttons;
 };
+
+static unsigned int s_mouseCols = 0;
+static unsigned int s_mouseRows = 0;
+static DosMouseState s_mouseState = {0, 0, 0};
 
 bool DosMouseInit()
 {
@@ -187,51 +185,47 @@ static void DosMouseReadState(DosMouseState &state)
 	state.x = regs.x.cx / 8u;
 	state.y = regs.x.dx / 8u;
 	state.buttons = regs.x.bx & 7u;
-	if( g_mouseCols && state.x >= g_mouseCols )
-		state.x = g_mouseCols - 1u;
-	if( g_mouseRows && state.y >= g_mouseRows )
-		state.y = g_mouseRows - 1u;
+	if( s_mouseCols && state.x >= s_mouseCols )
+		state.x = s_mouseCols - 1u;
+	if( s_mouseRows && state.y >= s_mouseRows )
+		state.y = s_mouseRows - 1u;
 }
 
 void DosMouseSync()
 {
-	DosMouseState state;
-	DosMouseReadState(state);
-	g_mouseX = state.x;
-	g_mouseY = state.y;
-	g_mouseButtons = state.buttons;
+	DosMouseReadState(s_mouseState);
 }
 
 bool DosMousePoll(DosMouseEvent &event)
 {
 	DosMouseState state;
 	DosMouseReadState(state);
-	unsigned int changed = (g_mouseButtons ^ state.buttons) & 7u;
+	unsigned int changed = (s_mouseState.buttons ^ state.buttons) & 7u;
 	event.button = 0;
 	if( changed )
 	{
 		unsigned int bit = (changed & 1u) ? 1u : ((changed & 4u) ? 4u : 2u);
 		event.button = bit == 1u ? 0u : (bit == 4u ? 1u : 2u);
 		event.type = (state.buttons & bit) ? DOS_MOUSE_PRESS : DOS_MOUSE_RELEASE;
-		g_mouseButtons = (g_mouseButtons & ~bit) | (state.buttons & bit);
+		s_mouseState.buttons = (s_mouseState.buttons & ~bit) | (state.buttons & bit);
 	}
-	else if( state.x != g_mouseX || state.y != g_mouseY )
+	else if( state.x != s_mouseState.x || state.y != s_mouseState.y )
 		event.type = DOS_MOUSE_MOVE;
 	else
 		return false;
 
-	g_mouseX = state.x;
-	g_mouseY = state.y;
+	s_mouseState.x = state.x;
+	s_mouseState.y = state.y;
 	event.x = state.x;
 	event.y = state.y;
-	event.buttons = g_mouseButtons;
+	event.buttons = s_mouseState.buttons;
 	return true;
 }
 
 void DosMouseRange(unsigned int cols, unsigned int rows)
 {
-	g_mouseCols = cols;
-	g_mouseRows = rows;
+	s_mouseCols = cols;
+	s_mouseRows = rows;
 	union REGS regs;
 	memset(&regs, 0, sizeof(regs));
 	regs.x.ax = 0x0007;

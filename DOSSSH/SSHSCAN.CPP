@@ -45,18 +45,18 @@ static void SshScanDebugKeys(const char *phase, const SSHPKT_Keys &keys)
 static const unsigned char basepoint[32] = {9};
 
 // One fixed buffer; also accommodates the 4-byte SSH packet length.
-static unsigned char g_sshFrame[SSHPKT_MAX_WIRE];
+static unsigned char s_sshFrame[SSHPKT_MAX_WIRE];
 // Hold original I_S while ECDH_REPLY overwrites the input frame.
-static unsigned char g_serverKex[8192];
-static unsigned char g_clientKex[512];
+static unsigned char s_serverKex[8192];
+static unsigned char s_clientKex[512];
 // Separate TX buffer: live RX frames may be only partially received.
-static unsigned char g_sshTxFrame[1536];
-static unsigned char g_sshMessage[1024];
+static unsigned char s_sshTxFrame[1536];
+static unsigned char s_sshMessage[1024];
 
 // -1 means a timeout or transport failure.
 static int ReadIdentByte(unsigned long start, unsigned long deadline)
 {
-	unsigned long elapsed = (unsigned long)(g_transport.Ticks() - start);
+	unsigned long elapsed = g_transport.Ticks() - start;
 	if( elapsed >= deadline )
 		return -1;
 	unsigned char byte;
@@ -177,8 +177,8 @@ private:
 
 		unsigned char noise[32];
 		bool generated = _rng.Generate(noise, padding);
-		size_t frame_length = generated ? SshPktEncodePlain(payload, length, noise, padding, g_sshFrame, sizeof(g_sshFrame)) : 0;
-		bool success = frame_length != 0 && SshPktWritePlain(g_sshFrame, frame_length, _timeout, &_sequenceOut);
+		size_t frame_length = generated ? SshPktEncodePlain(payload, length, noise, padding, s_sshFrame, sizeof(s_sshFrame)) : 0;
+		bool success = frame_length != 0 && SshPktWritePlain(s_sshFrame, frame_length, _timeout, &_sequenceOut);
 		SshCrypt::Zero(noise, sizeof(noise));
 		if( success )
 			DebugPacket("send plain", payload[0], length, _sequenceOut - 1ul);
@@ -187,7 +187,7 @@ private:
 
 	bool ReceivePlain()
 	{
-		_payload = SshPktReadPlain(g_sshFrame, sizeof(g_sshFrame), _length, _timeout, &_sequenceIn);
+		_payload = SshPktReadPlain(s_sshFrame, sizeof(s_sshFrame), _length, _timeout, &_sequenceIn);
 		if( _payload == NULL )
 			return false;
 
@@ -197,7 +197,7 @@ private:
 
 	bool ReceiveSecure()
 	{
-		_payload = SshPktReadSecure(_session.decrypt, g_sshFrame, sizeof(g_sshFrame), _length, _timeout, _sequenceIn);
+		_payload = SshPktReadSecure(_session.decrypt, s_sshFrame, sizeof(s_sshFrame), _length, _timeout, _sequenceIn);
 		if( _payload == NULL )
 			return false;
 
@@ -209,11 +209,11 @@ private:
 	{
 		if( !_rng.Generate(_cookie, sizeof(_cookie)) )
 			return false;
-		_clientKexLength = SshPktMakeKexinit(_cookie, g_clientKex, sizeof(g_clientKex));
+		_clientKexLength = SshPktMakeKexinit(_cookie, s_clientKex, sizeof(s_clientKex));
 
 		DebugHex("initial.kex_cookie", _cookie, sizeof(_cookie));
 		g_sshReason = "Cannot send client SSH_MSG_KEXINIT";
-		return _clientKexLength != 0 && SendPlain(g_clientKex, _clientKexLength);
+		return _clientKexLength != 0 && SendPlain(s_clientKex, _clientKexLength);
 	}
 
 	bool ReceiveKexinit()
@@ -233,12 +233,12 @@ private:
 			if( _payload[0] != 2 && _payload[0] != 4 )
 				return false;
 		}
-		if( !found || _length > sizeof(g_serverKex) )
+		if( !found || _length > sizeof(s_serverKex) )
 			return false;
 
-		memcpy(g_serverKex, _payload, _length);
+		memcpy(s_serverKex, _payload, _length);
 		_serverKexLength = _length;
-		int discard = DosSshNegotiateKexinit(g_serverKex, _serverKexLength);
+		int discard = DosSshNegotiateKexinit(s_serverKex, _serverKexLength);
 		if( discard < 0 )
 			return false;
 
@@ -298,7 +298,7 @@ private:
 		}
 		SshCrypt::Zero(_ephemeral, sizeof(_ephemeral));
 		_exchange.SetIdentifiers((const unsigned char *)SSHSCAN_CLIENT_ID, sizeof(SSHSCAN_CLIENT_ID) - 3, (const unsigned char *)_serverIdent, strlen(_serverIdent));
-		_exchange.SetKexinit(g_clientKex, _clientKexLength, g_serverKex, _serverKexLength);
+		_exchange.SetKexinit(s_clientKex, _clientKexLength, s_serverKex, _serverKexLength);
 		_exchange.SetEcdh(_reply, _publicKey, _shared);
 
 		DebugHex("initial.x25519.shared_secret", _shared, sizeof(_shared));
@@ -353,7 +353,7 @@ private:
 	bool RequestService()
 	{
 		g_sshReason = "Encrypted SSH userauth service request failed";
-		if( !SshPktWriteSecure(_session.encrypt, _rng, g_sshFrame, sizeof(g_sshFrame), s_service, sizeof(s_service), _timeout, _sequenceOut) )
+		if( !SshPktWriteSecure(_session.encrypt, _rng, s_sshFrame, sizeof(s_sshFrame), s_service, sizeof(s_service), _timeout, _sequenceOut) )
 			return false;
 
 		DebugPacket("send encrypted", s_service[0], sizeof(s_service), _sequenceOut - 1ul);
@@ -411,7 +411,7 @@ public:
 	{
 		_used = 1;
 		_good = true;
-		g_sshMessage[0] = type;
+		s_sshMessage[0] = type;
 	}
 
 	void Bytes(const unsigned char *bytes, size_t size)
@@ -419,13 +419,13 @@ public:
 		if( !_good )
 			return;
 
-		if( size > sizeof(g_sshMessage) - _used )
+		if( size > sizeof(s_sshMessage) - _used )
 		{
 			_good = false;
 			return;
 		}
 
-		memcpy(g_sshMessage + _used, bytes, size);
+		memcpy(s_sshMessage + _used, bytes, size);
 		_used += size;
 	}
 
@@ -542,18 +542,18 @@ static bool SshScanSendSecure(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, SshSc
 	if( !writer.Good() )
 		return false;
 
-	if( !SshPktWriteSecure(session.encrypt, rng, g_sshTxFrame, sizeof(g_sshTxFrame), g_sshMessage, writer.Size(), timeout, session.outSequence) )
+	if( !SshPktWriteSecure(session.encrypt, rng, s_sshTxFrame, sizeof(s_sshTxFrame), s_sshMessage, writer.Size(), timeout, session.outSequence) )
 		return false;
 
 	session.RecordSent(writer.Size());
-	DebugPacket("send encrypted", g_sshMessage[0], writer.Size(), session.outSequence - 1ul);
+	DebugPacket("send encrypted", s_sshMessage[0], writer.Size(), session.outSequence - 1ul);
 	return true;
 }
 
 static const unsigned char *SshScanReadSecure(SSHSCAN_Session &session,
 	size_t &size, unsigned long timeout)
 {
-	const unsigned char *payload = SshPktReadSecure(session.decrypt, g_sshFrame, sizeof(g_sshFrame), size, timeout, session.inSequence);
+	const unsigned char *payload = SshPktReadSecure(session.decrypt, s_sshFrame, sizeof(s_sshFrame), size, timeout, session.inSequence);
 	if( payload == NULL )
 		return NULL;
 
@@ -633,7 +633,7 @@ SshAuthenticator::SshAuthenticator(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, 
 SshAuthenticator::~SshAuthenticator()
 {
 	SshCrypt::Zero(_secret, sizeof(_secret));
-	SshCrypt::Zero(g_sshMessage, sizeof(g_sshMessage));
+	SshCrypt::Zero(s_sshMessage, sizeof(s_sshMessage));
 }
 
 bool SshAuthenticator::Login()
@@ -813,7 +813,7 @@ int SshAuthenticator::SendPassword()
 
 	g_sshReason = "Cannot transmit encrypted password";
 	bool sent = SshScanSendSecure(_session, _rng, writer, _timeout);
-	SshCrypt::Zero(g_sshMessage, writer.Size());
+	SshCrypt::Zero(s_sshMessage, writer.Size());
 	return sent ? WaitResult(false) : -1;
 }
 
@@ -895,7 +895,7 @@ bool SshAuthenticator::AnswerChallenge(const unsigned char *packet, size_t lengt
 
 	g_sshReason = "Cannot transmit keyboard-interactive response";
 	bool sent = SshScanSendSecure(_session, _rng, writer, _timeout);
-	SshCrypt::Zero(g_sshMessage, writer.Size());
+	SshCrypt::Zero(s_sshMessage, writer.Size());
 	return sent;
 }
 
@@ -1034,6 +1034,17 @@ static bool SshScanExpectChannel(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, Ss
 	return false;
 }
 
+static bool SshScanSendOpenFailure(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, unsigned long sender, unsigned long timeout)
+{
+	SshScanWriter writer;
+	writer.Begin(92); /* CHANNEL_OPEN_FAILURE */
+	writer.U32(sender);
+	writer.U32(1); /* SSH_OPEN_ADMINISTRATIVELY_PROHIBITED */
+	writer.Literal("server channels unsupported");
+	writer.Literal("");
+	return SshScanSendSecure(session, rng, writer, timeout);
+}
+
 // Reject server-initiated channels; this client only opens local sessions.
 static int SshScanRejectOpen(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, SshScanReader &reader, unsigned long timeout)
 {
@@ -1043,13 +1054,7 @@ static int SshScanRejectOpen(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, SshSca
 	if( name == NULL || !reader.U32(sender) )
 		return -1;
 
-	SshScanWriter writer;
-	writer.Begin(92);
-	writer.U32(sender);
-	writer.U32(1); /* SSH_OPEN_ADMINISTRATIVELY_PROHIBITED */
-	writer.Literal("server channels unsupported");
-	writer.Literal("");
-	return SshScanSendSecure(session, rng, writer, timeout) ? 0 : -1;
+	return SshScanSendOpenFailure(session, rng, sender, timeout) ? 0 : -1;
 }
 
 static int SshScanHandleData(SSHSCAN_Session &session, SSHCRYPT_RNG &rng, SshScanChannel &channel, SshScanReader &reader,
@@ -1259,7 +1264,7 @@ private:
 
 	bool Send(const unsigned char *data, size_t size)
 	{
-		if( !SshPktWriteSecure(_session.encrypt, _rng, g_sshTxFrame, sizeof(g_sshTxFrame), data, size, _timeout, _session.outSequence) )
+		if( !SshPktWriteSecure(_session.encrypt, _rng, s_sshTxFrame, sizeof(s_sshTxFrame), data, size, _timeout, _session.outSequence) )
 			return false;
 
 		_session.RecordSent(size);
@@ -1327,20 +1332,20 @@ private:
 		 * survive subsequent reads into the shared receive buffer. */
 		if( serverKex )
 		{
-			if( !serverKexSize || serverKex[0] != 20 || serverKexSize > sizeof(g_serverKex) )
+			if( !serverKexSize || serverKex[0] != 20 || serverKexSize > sizeof(s_serverKex) )
 				return false;
 
-			memcpy(g_serverKex, serverKex, serverKexSize);
+			memcpy(s_serverKex, serverKex, serverKexSize);
 			_serverSize = serverKexSize;
 		}
 
 		if( !_rng.Generate(_cookie, sizeof(_cookie)) )
 			return false;
-		_clientSize = SshPktMakeKexinit(_cookie, g_clientKex, sizeof(g_clientKex));
+		_clientSize = SshPktMakeKexinit(_cookie, s_clientKex, sizeof(s_clientKex));
 		DebugHex("rekey.kex_cookie", _cookie, sizeof(_cookie));
 
 		g_sshReason = "Could not send rekey SSH_MSG_KEXINIT";
-		if( _clientSize == 0 || !Send(g_clientKex, _clientSize) )
+		if( _clientSize == 0 || !Send(s_clientKex, _clientSize) )
 			return false;
 
 		if( _serverSize )
@@ -1352,16 +1357,16 @@ private:
 		{
 			/* There is no packet-count limit on in-flight messages, but
 			 * the peer must complete negotiation within the timeout. */
-			unsigned long elapsed = (unsigned long)(g_transport.Ticks() - start);
+			unsigned long elapsed = g_transport.Ticks() - start;
 			if( elapsed >= _timeout || !Receive(_timeout - elapsed) )
 				return false;
 
 			if( _packet[0] == 20 )
 			{
-				if( _length > sizeof(g_serverKex) )
+				if( _length > sizeof(s_serverKex) )
 					return false;
 
-				memcpy(g_serverKex, _packet, _length);
+				memcpy(s_serverKex, _packet, _length);
 				_serverSize = _length;
 				return true;
 			}
@@ -1378,7 +1383,7 @@ private:
 	bool NegotiateKex()
 	{
 		g_sshReason = "Incompatible or malformed rekey SSH_MSG_KEXINIT";
-		int discard = DosSshNegotiateKexinit(g_serverKex, _serverSize);
+		int discard = DosSshNegotiateKexinit(s_serverKex, _serverSize);
 		if( discard < 0 )
 			return false;
 		Log('I', "Rekey negotiated guess=%d", discard);
@@ -1407,7 +1412,7 @@ private:
 		unsigned long start = g_transport.Ticks();
 		for( ;; )
 		{
-			unsigned long elapsed = (unsigned long)(g_transport.Ticks() - start);
+			unsigned long elapsed = g_transport.Ticks() - start;
 			if( elapsed >= _timeout || !Receive(_timeout - elapsed) )
 				return false;
 
@@ -1442,7 +1447,7 @@ private:
 		SshExchange exchange;
 		exchange.SetIdentifiers((const unsigned char *)SSHSCAN_CLIENT_ID, sizeof(SSHSCAN_CLIENT_ID) - 3,
 			(const unsigned char *)_session.serverIdent, strlen(_session.serverIdent));
-		exchange.SetKexinit(g_clientKex, _clientSize, g_serverKex, _serverSize);
+		exchange.SetKexinit(s_clientKex, _clientSize, s_serverKex, _serverSize);
 		exchange.SetEcdh(_reply, _publicKey, _shared);
 
 		g_sshReason = "Invalid X25519 rekey secret or exchange hash";
@@ -1477,7 +1482,7 @@ private:
 		unsigned long start = g_transport.Ticks();
 		for( ;; )
 		{
-			unsigned long elapsed = (unsigned long)(g_transport.Ticks() - start);
+			unsigned long elapsed = g_transport.Ticks() - start;
 			if( elapsed >= _timeout || !Receive(_timeout - elapsed) )
 				return false;
 
@@ -1507,13 +1512,7 @@ private:
 
 		for( size_t i = 0; i < _pendingOpenCount; i++ )
 		{
-			SshScanWriter rejected;
-			rejected.Begin(92); /* CHANNEL_OPEN_FAILURE */
-			rejected.U32(_pendingOpens[i]);
-			rejected.U32(1); /* SSH_OPEN_ADMINISTRATIVELY_PROHIBITED */
-			rejected.Literal("server channels unsupported");
-			rejected.Literal("");
-			if( !SshScanSendSecure(_session, _rng, rejected, _timeout) )
+			if( !SshScanSendOpenFailure(_session, _rng, _pendingOpens[i], _timeout) )
 				return false;
 		}
 
@@ -1567,7 +1566,7 @@ bool SSHSCAN_Session::NeedsRekey(unsigned long now) const
 {
 	return rekeyRequested || inEpochPackets >= 1000000ul || outEpochPackets >= 1000000ul ||
 		inEpochBytes >= 1073741824ul || outEpochBytes >= 1073741824ul ||
-		(rekeyPeriodTicks && (unsigned long)(now - lastKexTicks) >= rekeyPeriodTicks);
+		(rekeyPeriodTicks && now - lastKexTicks >= rekeyPeriodTicks);
 }
 
 class SshShellCleanup
@@ -1577,7 +1576,7 @@ public:
 	~SshShellCleanup()
 	{
 		SshCrypt::Zero(_keys, sizeof(_keys));
-		SshCrypt::Zero(g_sshMessage, sizeof(g_sshMessage));
+		SshCrypt::Zero(s_sshMessage, sizeof(s_sshMessage));
 	}
 
 private:
@@ -1680,7 +1679,7 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
 			g_sshReason = "SSH interactive channel or transport failure";
 		}
 
-		int polled = reader.Poll(session.decrypt, g_sshFrame, sizeof(g_sshFrame), &packet, length, session.inSequence);
+		int polled = reader.Poll(session.decrypt, s_sshFrame, sizeof(s_sshFrame), &packet, length, session.inSequence);
 		if( polled < 0 )
 		{
 			Log('E', "SSH packet/MAC invalid; disconnected");
@@ -1757,7 +1756,7 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
 						return false;
 
 					SshCrypt::Zero(keys, key_count);
-					SshCrypt::Zero(g_sshMessage, writer.Size());
+					SshCrypt::Zero(s_sshMessage, writer.Size());
 					channel.Sent(key_count);
 				}
 			}
@@ -1767,7 +1766,7 @@ bool SshScanShell(SSHSCAN_Session &session, SSHCRYPT_RNG &rng,
 }
 
 // The SHA256 fingerprint uses OpenSSH's unpadded base64 representation.
-static const char g_sshBase64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static const char s_sshBase64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 // Exactly 32 input bytes give 43 unpadded base64 characters.
 static void SshScanBase64(const unsigned char digest[32], char out[44])
@@ -1777,16 +1776,16 @@ static void SshScanBase64(const unsigned char digest[32], char out[44])
 		unsigned int a = digest[i];
 		unsigned int b = digest[i + 1];
 		unsigned int c = digest[i + 2];
-		out[j] = g_sshBase64[a >> 2];
-		out[j + 1] = g_sshBase64[((a & 3) << 4) | (b >> 4)];
-		out[j + 2] = g_sshBase64[((b & 15) << 2) | (c >> 6)];
-		out[j + 3] = g_sshBase64[c & 63];
+		out[j] = s_sshBase64[a >> 2];
+		out[j + 1] = s_sshBase64[((a & 3) << 4) | (b >> 4)];
+		out[j + 2] = s_sshBase64[((b & 15) << 2) | (c >> 6)];
+		out[j + 3] = s_sshBase64[c & 63];
 	}
 	unsigned int a = digest[30];
 	unsigned int b = digest[31];
-	out[40] = g_sshBase64[a >> 2];
-	out[41] = g_sshBase64[((a & 3) << 4) | (b >> 4)];
-	out[42] = g_sshBase64[(b & 15) << 2];
+	out[40] = s_sshBase64[a >> 2];
+	out[41] = s_sshBase64[((a & 3) << 4) | (b >> 4)];
+	out[42] = s_sshBase64[(b & 15) << 2];
 	out[43] = '\0';
 }
 

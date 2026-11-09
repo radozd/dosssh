@@ -52,15 +52,15 @@
 
 char g_hostArg[HOSTNAME_MAX_LEN];
 uint16_t g_portArg;
-static char g_userArg[USERNAME_MAX_LEN];
-static bool g_debugArg = false;
+static char s_userArg[USERNAME_MAX_LEN];
+static bool s_debugArg = false;
 
 MtcpTransport g_transport;
 const char *g_sshReason = "SSH connection failed";
 
-static SSHCRYPT_RNG g_rng;
-static SSHSCAN_Session g_session;
-static char g_username[129];
+static SSHCRYPT_RNG s_rng;
+static SSHSCAN_Session s_session;
+static char s_username[129];
 
 /* ------------------------------------------------------------------------- */
 static bool ParseHostPort(const char *src)
@@ -105,9 +105,9 @@ static bool ParseArgs(int argc, char *argv[])
 	bool host_set = false;
 
 	g_hostArg[0] = '\0';
-	g_userArg[0] = '\0';
+	s_userArg[0] = '\0';
 	g_portArg = SSH_DEFAULT_PORT;
-	g_debugArg = false;
+	s_debugArg = false;
 
 	if( argc < 2 )
 		return false;
@@ -117,15 +117,15 @@ static bool ParseArgs(int argc, char *argv[])
 		const char *arg = argv[i];
 
 		if( strcmp(arg, "-debug") == 0 )
-			g_debugArg = true;
+			s_debugArg = true;
 		else if( strcmp(arg, "-u") == 0 )
 		{
 			if( i > argc - 2 )
 				return false;
 
 			i++;
-			CopyTrunc(g_userArg, sizeof(g_userArg), argv[i]);
-			if( g_userArg[0] == '\0' )
+			CopyTrunc(s_userArg, sizeof(s_userArg), argv[i]);
+			if( s_userArg[0] == '\0' )
 				return false;
 		}
 		else if( arg[0] == '-' )
@@ -154,16 +154,16 @@ UiScreen g_screen;
 #include "DEBUG.CPP"
 /* ------------------------------------------------------------------------- */
 #include "UITERM.CPP"
-static UiTerminal g_uiTerminal;
+static UiTerminal s_uiTerminal;
 
 void DosTerminalOutput(const unsigned char *bytes, size_t length)
 {
-	g_uiTerminal.Output(bytes, length);
+	s_uiTerminal.Output(bytes, length);
 }
 
 int DosTerminalInput(unsigned char *buffer, size_t capacity)
 {
-	return g_uiTerminal.Input(buffer, capacity);
+	return s_uiTerminal.Input(buffer, capacity);
 }
 /* ------------------------------------------------------------------------- */
 static void RestoreVideo()
@@ -171,7 +171,7 @@ static void RestoreVideo()
 	if( g_screen.IsCaptured() )
 	{
 		g_transport.SetInteractive(false);
-		g_uiTerminal.Stop();
+		s_uiTerminal.Stop();
 		g_screen.Restore();
 	}
 }
@@ -180,7 +180,7 @@ static int SshRun(const char *programPath)
 {
 	volatile unsigned long far *ticks = (volatile unsigned long far *)MK_FP(0x40, 0x6C);
 	unsigned long start = *ticks;
-	if( !SshEntropy::Initialize(g_rng, programPath) )
+	if( !SshEntropy::Initialize(s_rng, programPath) )
 	{
 		Log('E', "No usable cryptographic seed; SSH connection cancelled.");
 		return 1;
@@ -216,30 +216,30 @@ static int SshRun(const char *programPath)
 	}
 
 	Log('I', "Peer %s", server_ident);
-	if( !SshScanExchangeTofu(server_ident, g_rng, g_session, TIMER_SECS_TO_TICKS(30)) )
+	if( !SshScanExchangeTofu(server_ident, s_rng, s_session, TIMER_SECS_TO_TICKS(30)) )
 	{
 		Log('E', "SSH initial KEX failed: %s", g_sshReason);
 		return 1;
 	}
 
-	g_session.rekeyPeriodTicks = TIMER_SECS_TO_TICKS(3600);
-	if( g_userArg[0] )
+	s_session.rekeyPeriodTicks = TIMER_SECS_TO_TICKS(3600);
+	if( s_userArg[0] )
 	{
-		if( !DosOemString(g_userArg, g_username, sizeof(g_username)) )
+		if( !DosOemString(s_userArg, s_username, sizeof(s_username)) )
 		{
 			Log('E', "Invalid username or too long");
 			return 1;
 		}
 	}
-	else if( !DosUsername(g_username, sizeof(g_username)) )
+	else if( !DosUsername(s_username, sizeof(s_username)) )
 	{
 		Log('E', "Username entry cancelled");
 		return 1;
 	}
 
-	Log('I', "Auth user=%s", g_username);
+	Log('I', "Auth user=%s", s_username);
 	{
-		SshAuthenticator authenticator(g_session, g_rng, g_username, TIMER_SECS_TO_TICKS(30));
+		SshAuthenticator authenticator(s_session, s_rng, s_username, TIMER_SECS_TO_TICKS(30));
 		if( !authenticator.Login() )
 		{
 			Log('E', "Authentication failed: %s", g_sshReason);
@@ -265,7 +265,7 @@ static int SshRun(const char *programPath)
 	g_terminal.Reset();
 	g_screen.Draw();
 
-	g_uiTerminal.Start();
+	s_uiTerminal.Start();
 
 	if( DebugEnabled() )
 	{
@@ -279,18 +279,18 @@ static int SshRun(const char *programPath)
 	// xterm defines F1-F12 in both video modes. Its basic 8 colours
 	// plus bright foreground fit the 16-colour CGA/EGA/VGA palette;
 	// UiScreen maps output to monochrome attributes for MDA.
-	bool ok = SshScanShell(g_session, g_rng, g_screen.Cols(), g_screen.Rows(),
+	bool ok = SshScanShell(s_session, s_rng, g_screen.Cols(), g_screen.Rows(),
 		"xterm", TIMER_SECS_TO_TICKS(30));
 
 	RestoreVideo();
-	Log('I', "Shell result=%d exit=%d code=%lu", ok, g_session.exitStatusReceived, g_session.exitStatus);
+	Log('I', "Shell result=%d exit=%d code=%lu", ok, s_session.exitStatusReceived, s_session.exitStatus);
 	if( !ok )
 	{
 		Log('E', "Shell failed: %s", g_sshReason);
 		return 1;
 	}
 
-	return g_session.exitStatusReceived ? (int)(g_session.exitStatus & 255ul) : 0;
+	return s_session.exitStatusReceived ? (int)(s_session.exitStatus & 255ul) : 0;
 }
 
 static void SshCleanup()
@@ -299,9 +299,9 @@ static void SshCleanup()
 	if( g_transport.Aborted() )
 		Log('E', "Interrupted");
 	g_transport.Stop();
-	g_session.Clear();
-	g_rng.Clear();
-	SshCrypt::Zero(g_username, sizeof(g_username));
+	s_session.Clear();
+	s_rng.Clear();
+	SshCrypt::Zero(s_username, sizeof(s_username));
 }
 
 unsigned int Cpu386();

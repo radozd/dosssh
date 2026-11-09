@@ -30,15 +30,15 @@
 #include "GLOBALS.H"
 #include "UTIL.H"
 
-static FILE *g_debugStream = NULL;
+static FILE *s_debugStream = NULL;
 
 void InitDebug()
 {
-	if( !g_debugArg )
+	if( !s_debugArg )
 		return;
 
-	g_debugStream = fopen("DOSSSH.LOG", "wt");
-	if( g_debugStream == NULL )
+	s_debugStream = fopen("DOSSSH.LOG", "wt");
+	if( s_debugStream == NULL )
 	{
 		Log('E', "Cannot open DOSSSH.LOG; continuing without -debug trace.");
 		return;
@@ -51,46 +51,46 @@ void InitDebug()
 
 bool DebugEnabled()
 {
-	return g_debugStream != NULL;
+	return s_debugStream != NULL;
 }
 
 void StopDebug()
 {
 	if( DebugEnabled() )
 	{
-		fclose(g_debugStream);
-		g_debugStream = NULL;
+		fclose(s_debugStream);
+		s_debugStream = NULL;
 	}
 }
 
 // INT 1Ch is chained by mTCP. Keep its screen writer independent of the
 // network and of stack-allocated LongOp objects. No DOS/BIOS/CRT calls in ISR.
-static LongOp *g_currentOp = NULL;
-static bool g_statusVisible = false;
+static LongOp *s_currentOp = NULL;
+static bool s_statusVisible = false;
 
-static volatile unsigned long g_timerTicks = 0;
-static volatile unsigned long g_timerOpStart = 0;
-static volatile unsigned long g_timerShownSecond = 0;
+static volatile unsigned long s_timerTicks = 0;
+static volatile unsigned long s_timerOpStart = 0;
+static volatile unsigned long s_timerShownSecond = 0;
 
-static volatile unsigned char g_timerDrawEnabled = 0;
-static unsigned int g_timerVideoSegment = 0;
-static unsigned int g_timerFieldOffset = 0;
-static bool g_timerHooked = false;
-static void (__interrupt __far *g_oldTimer1c)() = NULL;
+static volatile unsigned char s_timerDrawEnabled = 0;
+static unsigned int s_timerVideoSegment = 0;
+static unsigned int s_timerFieldOffset = 0;
+static bool s_timerHooked = false;
+static void (__interrupt __far *s_oldTimer1c)() = NULL;
 
 static void __interrupt __far LongOpTimer1c()
 {
-	g_timerTicks++;
-	if( g_timerDrawEnabled && !g_screen.IsCaptured() )
+	s_timerTicks++;
+	if( s_timerDrawEnabled && !g_screen.IsCaptured() )
 	{
-		unsigned long seconds = (unsigned long)(g_timerTicks - g_timerOpStart) / TIMER_TICKS_PER_SEC;
+		unsigned long seconds = (s_timerTicks - s_timerOpStart) / TIMER_TICKS_PER_SEC;
 		if( seconds > 9999ul )
 			seconds = 9999ul;
-		if( seconds != 0 && seconds != g_timerShownSecond )
+		if( seconds != 0 && seconds != s_timerShownSecond )
 		{
-			g_timerShownSecond = seconds;
+			s_timerShownSecond = seconds;
 
-			volatile unsigned char far *field = (volatile unsigned char far *)MK_FP(g_timerVideoSegment, g_timerFieldOffset);
+			volatile unsigned char far *field = (volatile unsigned char far *)MK_FP(s_timerVideoSegment, s_timerFieldOffset);
 			unsigned char reversed[4];
 			int count = 0;
 			do
@@ -104,48 +104,48 @@ static void __interrupt __far LongOpTimer1c()
 			field[2 + 2*count] = 's';
 		}
 	}
-	_chain_intr(g_oldTimer1c);
+	_chain_intr(s_oldTimer1c);
 }
 
 // A 32-bit value must be read atomically on a 16-bit processor.
 static unsigned long LongOpTicks()
 {
 	disable_ints();
-	unsigned long ticks = g_timerTicks;
+	unsigned long ticks = s_timerTicks;
 	enable_ints();
 	return ticks;
 }
 
 void LongOp::StartTimer()
 {
-	if( g_timerHooked )
+	if( s_timerHooked )
 		return;
 
 	disable_ints();
-	g_oldTimer1c = getvect(0x1C);
+	s_oldTimer1c = getvect(0x1C);
 	setvect(0x1C, LongOpTimer1c);
-	g_timerHooked = true;
+	s_timerHooked = true;
 	enable_ints();
 }
 
 void LongOp::StopTimer()
 {
-	g_timerDrawEnabled = 0;
-	if( !g_timerHooked )
+	s_timerDrawEnabled = 0;
+	if( !s_timerHooked )
 		return;
 
 	disable_ints();
-	setvect(0x1C, g_oldTimer1c);
-	g_timerHooked = false;
+	setvect(0x1C, s_oldTimer1c);
+	s_timerHooked = false;
 	enable_ints();
 }
 
 static void LogEndStatus()
 {
-	g_timerDrawEnabled = 0;
-	if( g_statusVisible )
+	s_timerDrawEnabled = 0;
+	if( s_statusVisible )
 	{
-		g_statusVisible = false;
+		s_statusVisible = false;
 		if( !g_screen.IsCaptured() )
 		{
 			putchar('\n');
@@ -158,20 +158,20 @@ LongOp::LongOp(const char *name)
 {
 	LogEndStatus();
 	_name = name;
-	_previous = g_currentOp;
+	_previous = s_currentOp;
 	_started = LongOpTicks();
-	g_currentOp = this;
+	s_currentOp = this;
 	Show();
 }
 
 LongOp::~LongOp()
 {
-	unsigned long ticks = (unsigned long)(LongOpTicks() - _started);
+	unsigned long ticks = LongOpTicks() - _started;
 
 	LogEndStatus();
-	g_currentOp = _previous;
+	s_currentOp = _previous;
 	Log('S', "%s %lu.%lus", _name, ticks / TIMER_TICKS_PER_SEC, (ticks % TIMER_TICKS_PER_SEC) * 10ul / TIMER_TICKS_PER_SEC);
-	if( g_currentOp != NULL )
+	if( s_currentOp != NULL )
 		Show();
 }
 
@@ -180,25 +180,25 @@ void LongOp::Show()
 	if( g_screen.IsCaptured() )
 		return;
 
-	printf("%.48s", g_currentOp->_name);
+	printf("%.48s", s_currentOp->_name);
 	fflush(stdout);
-	g_statusVisible = true;
+	s_statusVisible = true;
 
 	volatile unsigned char far *bios = (volatile unsigned char far *)MK_FP(0x40, 0);
 	unsigned int cols = (unsigned int)bios[0x4A] | ((unsigned int)bios[0x4B] << 8);
 	unsigned int col = bios[0x50];
 	unsigned int row = bios[0x51];
 	unsigned int mode = bios[0x49];
-	if( g_timerHooked && bios[0x62] == 0 &&
+	if( s_timerHooked && bios[0x62] == 0 &&
 		(mode == 2 || mode == 3 || mode == 7) &&
 		cols >= 80 && cols <= 132 && row < 50 &&
 		col + 6u <= cols )
 	{
-		g_timerVideoSegment = mode == 7 ? 0xB000 : 0xB800;
-		g_timerFieldOffset = 2u*(cols*row + col);
-		g_timerOpStart = g_currentOp->_started;
-		g_timerShownSecond = 0;
-		g_timerDrawEnabled = 1;
+		s_timerVideoSegment = mode == 7 ? 0xB000 : 0xB800;
+		s_timerFieldOffset = 2u*(cols*row + col);
+		s_timerOpStart = s_currentOp->_started;
+		s_timerShownSecond = 0;
+		s_timerDrawEnabled = 1;
 	}
 }
 
@@ -211,15 +211,15 @@ static void LogWriteFile(char type, const char *line)
 	struct tm *local_time = localtime(&now);
 	if( local_time != NULL )
 	{
-		fprintf(g_debugStream, "%04d-%02d-%02d %02d:%02d:%02d %c %s\n",
+		fprintf(s_debugStream, "%04d-%02d-%02d %02d:%02d:%02d %c %s\n",
 			local_time->tm_year + 1900, local_time->tm_mon + 1,
 			local_time->tm_mday, local_time->tm_hour, local_time->tm_min,
 			local_time->tm_sec, type, line);
 	}
 	else
-		fprintf(g_debugStream, "??? %c %s\n", type, line);
+		fprintf(s_debugStream, "??? %c %s\n", type, line);
 
-	fflush(g_debugStream);
+	fflush(s_debugStream);
 }
 
 void Log(char type, const char *format, ...)

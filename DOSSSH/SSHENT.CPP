@@ -133,8 +133,8 @@ unsigned int SshEntReadAbsolute(unsigned int drive, const void far *packet);
 	value [ax] \
 	modify [bx cx dx si di];
 
-static unsigned char g_sector[512];
-static unsigned char g_packet[10];
+static unsigned char s_sector[512];
+static unsigned char s_packet[10];
 
 static unsigned int Load16(const unsigned char *bytes)
 {
@@ -193,12 +193,12 @@ static void ShowEntropyProgress(unsigned int percent, unsigned int &shown, bool 
 
 static bool ReadSector(unsigned char drive, unsigned long sectorNumber)
 {
-	Store32(g_packet, sectorNumber);
-	Store16(g_packet + 4, 1);
-	Store16(g_packet + 6, FP_OFF(g_sector));
-	Store16(g_packet + 8, FP_SEG(g_sector));
+	Store32(s_packet, sectorNumber);
+	Store16(s_packet + 4, 1);
+	Store16(s_packet + 6, FP_OFF(s_sector));
+	Store16(s_packet + 8, FP_SEG(s_sector));
 
-	return SshEntReadAbsolute(drive, g_packet) == 0;
+	return SshEntReadAbsolute(drive, s_packet) == 0;
 }
 
 static unsigned char ProgramDrive(const char *programPath)
@@ -247,18 +247,18 @@ static unsigned int CollectDisk(SshEntropy &collector, unsigned char drive, int 
 	if( !ReadSector(drive, 0) )
 		return 0;
 
-	unsigned int bytes_per_sector = Load16(g_sector + 11);
-	unsigned int reserved = Load16(g_sector + 14);
-	int fats = g_sector[16];
-	unsigned int root_entries = Load16(g_sector + 17);
-	unsigned int sectors_per_fat = Load16(g_sector + 22);
-	unsigned long total_sectors = Load16(g_sector + 19);
+	unsigned int bytes_per_sector = Load16(s_sector + 11);
+	unsigned int reserved = Load16(s_sector + 14);
+	int fats = s_sector[16];
+	unsigned int root_entries = Load16(s_sector + 17);
+	unsigned int sectors_per_fat = Load16(s_sector + 22);
+	unsigned long total_sectors = Load16(s_sector + 19);
 	if( total_sectors == 0 )
-		total_sectors = Load32(g_sector + 32);
+		total_sectors = Load32(s_sector + 32);
 
 	/* FAT12/16, 512 bytes/sector. Reject other layouts rather than
 	   interpreting filesystem data as a BPB. */
-	if( g_sector[510] != 0x55 || g_sector[511] != 0xAA ||
+	if( s_sector[510] != 0x55 || s_sector[511] != 0xAA ||
 		bytes_per_sector != 512 || reserved == 0 || fats == 0 ||
 		root_entries == 0 || sectors_per_fat == 0 )
 	{
@@ -271,8 +271,8 @@ static unsigned int CollectDisk(SshEntropy &collector, unsigned char drive, int 
 		return 0;
 
 	unsigned long serial = 0;
-	if( g_sector[38] == 0x28 || g_sector[38] == 0x29 )
-		serial = Load32(g_sector + 39);
+	if( s_sector[38] == 0x28 || s_sector[38] == 0x29 )
+		serial = Load32(s_sector + 39);
 	collector.AddVolume(drive, serial, total_sectors);
 	AddDosVolumeSerial(collector, drive);
 
@@ -301,14 +301,14 @@ static unsigned int CollectDisk(SshEntropy &collector, unsigned char drive, int 
 
 		if( read_ok )
 		{
-			collector.AddSector(g_sector, sector_number, before_tick, after_tick);
+			collector.AddSector(s_sector, sector_number, before_tick, after_tick);
 			consecutive_failures = 0;
 		}
 		else if( ++consecutive_failures >= 6 )
 			break;
 	}
 
-	SshCrypt::Zero(g_sector, sizeof(g_sector));
+	SshCrypt::Zero(s_sector, sizeof(s_sector));
 	return collector.SampleCount();
 }
 
@@ -395,7 +395,7 @@ static bool CollectInput(SshEntropy &collector)
 			last_key = now;
 		}
 
-		if( have_mouse && (unsigned long)(now - last_poll) >= mouse_poll_interval )
+		if( have_mouse && now - last_poll >= mouse_poll_interval )
 		{
 			last_poll = now;
 			int dx;
@@ -423,7 +423,7 @@ static bool CollectInput(SshEntropy &collector)
 				travel = distance >= 12ul ? 12u : (unsigned int)distance;
 
 				if( travel == 12u && (credited_dir == 0 || dir == -credited_dir) &&
-					(unsigned long)(now - last_gesture) >= gesture_interval )
+					now - last_gesture >= gesture_interval )
 				{
 					credit += 2u;
 					credited_dir = dir;

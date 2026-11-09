@@ -95,7 +95,7 @@ const unsigned char *SshPktDecodePlain(const unsigned char *frame, size_t frameL
 
 static bool SshPktReadBefore(unsigned char *out, size_t length, unsigned long started, unsigned long deadline)
 {
-	unsigned long elapsed = (unsigned long)(g_transport.Ticks() - started);
+	unsigned long elapsed = g_transport.Ticks() - started;
 	if( elapsed >= deadline )
 		return false;
 
@@ -146,18 +146,19 @@ bool SshPktWritePlain(const unsigned char *frame, size_t frameLength,
 	return true;
 }
 
+static const char *s_kexNames[10] = {
+	"curve25519-sha256", "ssh-ed25519", "aes128-ctr", "aes128-ctr", "hmac-sha2-256",
+	"hmac-sha2-256", "none", "none", "", ""};
+
 size_t SshPktMakeKexinit(const unsigned char cookie[16], unsigned char *p, size_t capacity)
 {
 	if( cookie == NULL || p == NULL || capacity < 62 )
 		return 0;
 
-	static const char *names[10] = {
-		"curve25519-sha256", "ssh-ed25519", "aes128-ctr", "aes128-ctr", "hmac-sha2-256",
-		"hmac-sha2-256", "none", "none", "", ""};
 	size_t offset = 17;
 	for( int i = 0; i < 10; i++ )
 	{
-		unsigned long n = (unsigned long)strlen(names[i]);
+		unsigned long n = (unsigned long)strlen(s_kexNames[i]);
 		if( (unsigned long)offset + 4ul + n + 5ul > capacity )
 			return 0;
 		offset += 4 + (size_t)n;
@@ -167,10 +168,10 @@ size_t SshPktMakeKexinit(const unsigned char cookie[16], unsigned char *p, size_
 	offset = 17;
 	for( int i = 0; i < 10; i++ )
 	{
-		size_t length = strlen(names[i]);
+		size_t length = strlen(s_kexNames[i]);
 		SshPktPut32(p + offset, (unsigned long)length);
 		offset += 4;
-		memcpy(p + offset, names[i], length);
+		memcpy(p + offset, s_kexNames[i], length);
 		offset += length;
 	}
 	p[offset++] = 0; /* first_kex_packet_follows = false */
@@ -384,7 +385,7 @@ bool SshExchange::Hash(unsigned char digest[32]) const
 		return false;
 
 	unsigned char mpint[37];
-	int mpint_size = SshPktMpint(_sharedSecret, mpint);
+	size_t mpint_size = SshPktMpint(_sharedSecret, mpint);
 
 	Sha256State state;
 	state.Init();
@@ -438,7 +439,7 @@ bool SshPktDeriveRekey(const unsigned char shared[32], const unsigned char H[32]
 
 	memset(&keys, 0, sizeof(keys));
 	unsigned char mpint[37];
-	int ksize = SshPktMpint(shared, mpint);
+	size_t ksize = SshPktMpint(shared, mpint);
 	if( !ksize )
 		return false;
 
@@ -694,10 +695,10 @@ bool DosSshReadExact(unsigned char *buf, size_t length, unsigned long timeout)
 		done += (size_t)received;
 		if( done == length )
 			return true;
-		if( (unsigned long)(g_transport.Ticks() - start) >= timeout )
+		if( g_transport.Ticks() - start >= timeout )
 		{
 			Log('E', "SSH read timeout got=%lu need=%lu ticks=%lu",
-				(unsigned long)done, (unsigned long)length, (unsigned long)(g_transport.Ticks() - start));
+				(unsigned long)done, (unsigned long)length, g_transport.Ticks() - start);
 			return false;
 		}
 		g_transport.Pump();
@@ -727,10 +728,10 @@ bool DosSshWriteAll(const unsigned char *buf, size_t length, unsigned long timeo
 		if( done == length )
 			return true;
 
-		if( (unsigned long)(g_transport.Ticks() - start) >= timeout )
+		if( g_transport.Ticks() - start >= timeout )
 		{
 			Log('E', "SSH write timeout sent=%lu need=%lu ticks=%lu",
-				(unsigned long)done, (unsigned long)length, (unsigned long)(g_transport.Ticks() - start));
+				(unsigned long)done, (unsigned long)length, g_transport.Ticks() - start);
 			return false;
 		}
 		g_transport.Pump();
@@ -818,10 +819,6 @@ public:
 
 	int Negotiate() const
 	{
-		static const char *required[8] = {
-			"curve25519-sha256", "ssh-ed25519", "aes128-ctr", "aes128-ctr",
-			"hmac-sha2-256", "hmac-sha2-256", "none", "none"
-		};
 		static const char *missing[8] = {
 			"No curve25519-sha256 offer", "No ssh-ed25519 host-key offer",
 			"No aes128-ctr C->S offer", "No aes128-ctr S->C offer",
@@ -835,7 +832,7 @@ public:
 
 		for( int i = 0; i < 8; i++ )
 		{
-			if( !_lists[i].Contains(required[i]) )
+			if( !_lists[i].Contains(s_kexNames[i]) )
 			{
 				g_sshReason = missing[i];
 				return -1;
@@ -843,7 +840,7 @@ public:
 		}
 
 		g_sshReason = "Compatible offers (exchange NOT complete)";
-		return _firstKexPacketFollows && (!_lists[0].FirstIs(required[0]) || !_lists[1].FirstIs(required[1])) ? 1 : 0;
+		return _firstKexPacketFollows && (!_lists[0].FirstIs(s_kexNames[0]) || !_lists[1].FirstIs(s_kexNames[1])) ? 1 : 0;
 	}
 
 private:

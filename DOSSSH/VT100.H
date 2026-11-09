@@ -64,7 +64,7 @@ public:
 	bool Ok() const { return _cells != NULL && !_screenFailed; }
 
 private:
-	struct ScreenState
+	struct CursorState
 	{
 		int x;
 		int y;
@@ -73,7 +73,10 @@ private:
 		char flags;
 		char charset;
 		bool useG1;
+	};
 
+	struct ScreenState : CursorState
+	{
 		int scrollTop;
 		int scrollBottom;
 		char g0;
@@ -84,13 +87,7 @@ private:
 		bool origin;
 		bool cursorApplication;
 
-		int savedX;
-		int savedY;
-		char savedFg;
-		char savedBg;
-		char savedFlags;
-		char savedCharset;
-		bool savedUseG1;
+		CursorState saved;
 	};
 	VtCell *_cells;
 	VtCell *_normalCells;

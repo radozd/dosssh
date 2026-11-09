@@ -27,7 +27,7 @@
 #include "UTIL.H"
 #include "INPUT.H"
 
-static const char g_ansiToEga[8] = { 0, 4, 2, 6, 1, 5, 3, 7 };
+static const char s_ansiToEga[8] = { 0, 4, 2, 6, 1, 5, 3, 7 };
 
 uint16_t VtCell::ScreenChar(bool bw) const
 {
@@ -92,7 +92,7 @@ void Vt100::ResetState()
 	memset(&_screenState, 0, sizeof(_screenState));
 	_screenState.scrollBottom = _rows ? _rows - 1 : 0;
 	_screenState.fg = 7;
-	_screenState.savedFg = 7;
+	_screenState.saved.fg = 7;
 	_screenState.cursorVisible = true;
 	_screenState.wrap = true;
 	_screenFailed = false;
@@ -296,7 +296,7 @@ void Vt100::AlternateScreen(bool enabled)
 		_screenState.cursorApplication = _normalState.cursorApplication;
 		_screenState.scrollBottom = _rows - 1;
 		_screenState.fg = 7;
-		_screenState.savedFg = 7;
+		_screenState.saved.fg = 7;
 		_screenState.wrap = true;
 		for( int y = 0; y < _rows; y++ )
 			ClearRow(y, 0, _cols - 1);
@@ -332,24 +332,13 @@ void Vt100::Put(unsigned char ch)
 
 void Vt100::SaveCursor()
 {
-	_screenState.savedX = _screenState.x;
-	_screenState.savedY = _screenState.y;
-	_screenState.savedFg = _screenState.fg;
-	_screenState.savedBg = _screenState.bg;
-	_screenState.savedFlags = _screenState.flags;
-	_screenState.savedCharset = _screenState.charset;
-	_screenState.savedUseG1 = _screenState.useG1;
+	_screenState.saved = _screenState;
 }
 
 void Vt100::RestoreCursor()
 {
-	_screenState.x = _screenState.savedX;
-	_screenState.y = _screenState.savedY;
-	_screenState.fg = _screenState.savedFg;
-	_screenState.bg = _screenState.savedBg;
-	_screenState.flags = _screenState.savedFlags;
-	_screenState.charset = _screenState.savedCharset;
-	_screenState.useG1 = _screenState.savedUseG1;
+	CursorState &cursor = _screenState;
+	cursor = _screenState.saved;
 	_screenState.pendingWrap = false;
 }
 
@@ -402,17 +391,17 @@ void Vt100::Sgr()
 		else if( p == 27 )
 			_screenState.flags &= (unsigned char)~VT_REVERSE;
 		else if( p >= 30 && p <= 37 )
-			_screenState.fg = g_ansiToEga[p - 30] | ((_screenState.flags & VT_BOLD) ? 8 : 0);
+			_screenState.fg = s_ansiToEga[p - 30] | ((_screenState.flags & VT_BOLD) ? 8 : 0);
 		else if( p == 39 )
 			_screenState.fg = (_screenState.flags & VT_BOLD) ? 15 : 7;
 		else if( p >= 40 && p <= 47 )
-			_screenState.bg = g_ansiToEga[p - 40];
+			_screenState.bg = s_ansiToEga[p - 40];
 		else if( p == 49 )
 			_screenState.bg = 0;
 		else if( p >= 90 && p <= 97 )
-			_screenState.fg = g_ansiToEga[p - 90] + 8;
+			_screenState.fg = s_ansiToEga[p - 90] + 8;
 		else if( p >= 100 && p <= 107 )
-			_screenState.bg = g_ansiToEga[p - 100]; // 8 EGA background colours, not bright
+			_screenState.bg = s_ansiToEga[p - 100]; // 8 EGA background colours, not bright
 	}
 }
 
@@ -508,14 +497,19 @@ void Vt100::Csi(char finalByte)
 		_screenState.x = n > _screenState.x ? 0 : _screenState.x - n;
 		break;
 	case 'E':
-		_screenState.y = n >= (_screenState.origin ? _screenState.scrollBottom : _rows - 1) - _screenState.y ?
-			(_screenState.origin ? _screenState.scrollBottom : _rows - 1) : _screenState.y + n;
+	{
+		int bottom = _screenState.origin ? _screenState.scrollBottom : _rows - 1;
+		_screenState.y = n >= bottom - _screenState.y ? bottom : _screenState.y + n;
 		_screenState.x = 0;
 		break;
+	}
 	case 'F':
-		_screenState.y = n > _screenState.y - (_screenState.origin ? _screenState.scrollTop : 0) ? (_screenState.origin ? _screenState.scrollTop : 0) : _screenState.y - n;
+	{
+		int top = _screenState.origin ? _screenState.scrollTop : 0;
+		_screenState.y = n > _screenState.y - top ? top : _screenState.y - n;
 		_screenState.x = 0;
 		break;
+	}
 	case 'G':
 	case '`':
 	{
@@ -528,7 +522,8 @@ void Vt100::Csi(char finalByte)
 		int y = n - 1;
 		if( _screenState.origin )
 			y += _screenState.scrollTop;
-		_screenState.y = y <= (_screenState.origin ? _screenState.scrollBottom : _rows - 1) ? y : (_screenState.origin ? _screenState.scrollBottom : _rows - 1);
+		int bottom = _screenState.origin ? _screenState.scrollBottom : _rows - 1;
+		_screenState.y = y <= bottom ? y : bottom;
 		break;
 	}
 	case 'f':
@@ -538,7 +533,8 @@ void Vt100::Csi(char finalByte)
 		if( _screenState.origin )
 			y += _screenState.scrollTop;
 		int x = Param(1, 1) - 1;
-		_screenState.y = y <= (_screenState.origin ? _screenState.scrollBottom : _rows - 1) ? y : (_screenState.origin ? _screenState.scrollBottom : _rows - 1);
+		int bottom = _screenState.origin ? _screenState.scrollBottom : _rows - 1;
+		_screenState.y = y <= bottom ? y : bottom;
 		_screenState.x = x < _cols ? x : _cols - 1;
 		break;
 	}

@@ -26,7 +26,7 @@
 
 #include "ENCODING.H"
 
-static int g_dosCodePage = 866;
+static int s_dosCodePage = 866;
 
 void InitDosCharset()
 {
@@ -36,25 +36,25 @@ void InitDosCharset()
 	switch( r.x.bx )
 	{
 	case 852:
-		g_dosCodePage = 852;
+		s_dosCodePage = 852;
 		break;
 
 	case 850:
 	case 858:
-		g_dosCodePage = 850;
+		s_dosCodePage = 850;
 		break;
 
 	case 437:
-		g_dosCodePage = 437;
+		s_dosCodePage = 437;
 		break;
 
 	default:
-		g_dosCodePage = 866;
+		s_dosCodePage = 866;
 	}
 	printf("DOS CP%d\n", r.x.bx);
 }
 
-static const unsigned short g_cp437_to_unicode[0x80] =
+static const unsigned short s_cp437_to_unicode[0x80] =
 {
 	0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00E4, 0x00E0, 0x00E5, 0x00E7,
 	0x00EA, 0x00EB, 0x00E8, 0x00EF, 0x00EE, 0x00EC, 0x00C4, 0x00C5,
@@ -74,7 +74,7 @@ static const unsigned short g_cp437_to_unicode[0x80] =
 	0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0
 };
 
-static const unsigned short g_cp850_to_unicode[0x80] =
+static const unsigned short s_cp850_to_unicode[0x80] =
 {
 	0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00E4, 0x00E0, 0x00E5, 0x00E7,
 	0x00EA, 0x00EB, 0x00E8, 0x00EF, 0x00EE, 0x00EC, 0x00C4, 0x00C5,
@@ -94,7 +94,7 @@ static const unsigned short g_cp850_to_unicode[0x80] =
 	0x00B0, 0x00A8, 0x00B7, 0x00B9, 0x00B3, 0x00B2, 0x25A0, 0x00A0
 };
 
-static const unsigned short g_cp852_to_unicode[0x80] =
+static const unsigned short s_cp852_to_unicode[0x80] =
 {
 	0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00E4, 0x016F, 0x0107, 0x00E7,
 	0x0142, 0x00EB, 0x0150, 0x0151, 0x00EE, 0x0179, 0x00C4, 0x0106,
@@ -114,7 +114,7 @@ static const unsigned short g_cp852_to_unicode[0x80] =
 	0x00B0, 0x00A8, 0x02D9, 0x0171, 0x0158, 0x0159, 0x25A0, 0x00A0
 };
 
-static const unsigned short g_cp866_to_unicode[0x80] =
+static const unsigned short s_cp866_to_unicode[0x80] =
 {
 	0x0410, 0x0411, 0x0412, 0x0413, 0x0414, 0x0415, 0x0416, 0x0417,
 	0x0418, 0x0419, 0x041A, 0x041B, 0x041C, 0x041D, 0x041E, 0x041F,
@@ -136,12 +136,12 @@ static const unsigned short g_cp866_to_unicode[0x80] =
 
 static const unsigned short *DosOemTable()
 {
-	switch( g_dosCodePage )
+	switch( s_dosCodePage )
 	{
-	case 850: return g_cp850_to_unicode;
-	case 852: return g_cp852_to_unicode;
-	case 866: return g_cp866_to_unicode;
-	default:  return g_cp437_to_unicode;
+	case 850: return s_cp850_to_unicode;
+	case 852: return s_cp852_to_unicode;
+	case 866: return s_cp866_to_unicode;
+	default:  return s_cp437_to_unicode;
 	}
 }
 
@@ -157,7 +157,7 @@ unsigned char DosUnicodeOem(unsigned long ch)
 	if( ch < 128ul )
 		return (unsigned char)ch;
 
-	if( g_dosCodePage == 866u )
+	if( s_dosCodePage == 866u )
 	{
 		if( ch >= 0x410ul && ch <= 0x43Ful )
 			return (unsigned char)(128u + ch - 0x410ul);
@@ -179,7 +179,7 @@ unsigned char DosUnicodeOem(unsigned long ch)
 
 size_t DosOemToUtf8(unsigned char ch, unsigned char out[4])
 {
-	int u = DosOemUnicode(ch);
+	unsigned int u = DosOemUnicode(ch);
 	if( u < 0x80 )
 	{
 		out[0] = (unsigned char)u;
