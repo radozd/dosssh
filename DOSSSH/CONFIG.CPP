@@ -28,6 +28,7 @@
 #include "GLOBALS.H"
 #include "SSHCRYPT.H"
 #include "SSHSCAN.H"
+#include "SSHSHA.H"
 #include "UTIL.H"
 
 /* DOSSSH.DAT is ASCII text with explicit CRLF endings:
@@ -292,7 +293,8 @@ static bool SshDataWriteHost(FILE *file, const char *host, const unsigned char k
 
 // 1 = identical key, -1 = changed key, 0 = unknown host.
 static bool SshDataVerify(const char *path, unsigned char seed[64],
-	const char *lookup, const unsigned char *expectedKey, int *match, int *count)
+	const char *lookup, const unsigned char *expectedKey, int *match, int *count,
+	unsigned char savedKey[51] = NULL)
 {
 	FILE *file = fopen(path, "rb");
 	if( !file )
@@ -320,6 +322,8 @@ static bool SshDataVerify(const char *path, unsigned char seed[64],
 		total++;
 		if( lookup && strcmp(line, lookup) == 0 )
 		{
+			if( savedKey && *match == 0 )
+				memcpy(savedKey, key, sizeof(key));
 			if( *match == -1 || memcmp(key, expectedKey, sizeof(key)) != 0 )
 				*match = -1;
 			else
@@ -333,7 +337,11 @@ static bool SshDataVerify(const char *path, unsigned char seed[64],
 		*count = total;
 
 	if( !valid )
+	{
 		SshCrypt::Zero(seed, 64);
+		if( savedKey )
+			SshCrypt::Zero(savedKey, 51);
+	}
 
 	SshCrypt::Zero(line, sizeof(line));
 	SshCrypt::Zero(key, sizeof(key));
@@ -384,7 +392,7 @@ bool SshData::LoadSeed(unsigned char seed[64], bool &present)
 	return errno == ENOENT;
 }
 
-static bool SshDataCommit(const unsigned char newSeed[64], const char *newHost, const unsigned char *newKey)
+static bool SshDataCommit(const unsigned char newSeed[64], const char *newHost, const unsigned char *newKey, bool replaceHost)
 {
 	unsigned char old_seed[64];
 	bool had_file = false;
@@ -397,7 +405,7 @@ static bool SshDataCommit(const unsigned char newSeed[64], const char *newHost, 
 	int old_count = 0;
 	bool valid = !had_file || SshDataVerify(s_dataPath, old_seed, NULL, NULL, NULL, &old_count);
 	SshCrypt::Zero(old_seed, sizeof(old_seed));
-	if( !valid || (newHost && (old_count == SSHDATA_MAX_HOSTS || !newKey || !SshDataKeyValid(newKey))) )
+	if( !valid || (replaceHost && !newHost) || (newHost && (!newKey || !SshDataKeyValid(newKey) || (!replaceHost && old_count == SSHDATA_MAX_HOSTS))) )
 		return false;
 
 	FILE *old = NULL;
@@ -428,16 +436,30 @@ static bool SshDataCommit(const unsigned char newSeed[64], const char *newHost, 
 	}
 
 	bool ok = SshDataWriteSeed(out, newSeed);
+	int removed = 0;
 	if( old )
 	{
 		int status = 0;
 		while( ok && (status = SshDataReadLine(old, line, sizeof(line))) == 1 )
+		{
+			if( replaceHost && newHost )
+			{
+				size_t l = strlen(newHost);
+				if( strncmp(line, newHost, l) == 0 && line[l] == ' ' )
+				{
+					removed++;
+					continue;
+				}
+			}
 			ok = fprintf(out, "%s\r\n", line) >= 0;
+		}
 		if( ok && status != -1 )
 			ok = false;
 		if( fclose(old) != 0 )
 			ok = false;
 	}
+	if( replaceHost && removed == 0 )
+		ok = false;
 
 	SshCrypt::Zero(line, sizeof(line));
 	if( ok && newHost )
@@ -454,7 +476,7 @@ static bool SshDataCommit(const unsigned char newSeed[64], const char *newHost, 
 		int count = 0;
 		ok = SshDataVerify(s_tempPath, verified, newHost, newKey, newHost ? &match : NULL, &count) &&
 			SshCrypt::Equal(verified, newSeed, sizeof(verified)) &&
-			count == old_count + (newHost ? 1 : 0) && (!newHost || match == 1);
+			count == old_count - removed + (newHost ? 1 : 0) && (!newHost || match == 1);
 		SshCrypt::Zero(verified, sizeof(verified));
 	}
 	if( !ok )
@@ -486,7 +508,7 @@ static bool SshDataCommit(const unsigned char newSeed[64], const char *newHost, 
 
 bool SshData::RotateSeed(const unsigned char seed[64])
 {
-	return SshDataCommit(seed, NULL, NULL);
+	return SshDataCommit(seed, NULL, NULL, false);
 }
 
 bool SshData::KnownHost(const char *host, unsigned int port, const unsigned char *key,
@@ -497,40 +519,50 @@ bool SshData::KnownHost(const char *host, unsigned int port, const unsigned char
 		return false;
 
 	unsigned char seed[64];
+	unsigned char saved_key[51];
 	int match;
-	if( !SshDataVerify(s_dataPath, seed, lookup, key, &match, NULL) )
+	if( !SshDataVerify(s_dataPath, seed, lookup, key, &match, NULL, saved_key) )
 	{
 		SshCrypt::Zero(seed, sizeof(seed));
+		SshCrypt::Zero(saved_key, sizeof(saved_key));
 		return false;
 	}
 	if( match == 1 )
 	{
 		SshCrypt::Zero(seed, sizeof(seed));
+		SshCrypt::Zero(saved_key, sizeof(saved_key));
 		return true;
-	}
-	if( match == -1 )
-	{
-		printf("WARNING: SSH HOST KEY CHANGED for %s!\n", lookup);
-		printf("Refusing connection. Check the host independently.\n");
-		SshCrypt::Zero(seed, sizeof(seed));
-		return false;
 	}
 
 	char fingerprint[52];
 	SshScanFingerprint(digest, fingerprint);
-	if( !DosConfirmHost(lookup, fingerprint) )
+	bool accepted = false;
+	if( match == -1 )
+	{
+		unsigned char saved_digest[32];
+		char saved_f[52];
+		Sha256State::Simple(saved_key, sizeof(saved_key), saved_digest);
+		SshScanFingerprint(saved_digest, saved_f);
+		SshCrypt::Zero(saved_digest, sizeof(saved_digest));
+		accepted = DosOverrideHost(lookup, saved_f, fingerprint);
+	}
+	else
+		accepted = DosConfirmHost(lookup, fingerprint);
+
+	SshCrypt::Zero(saved_key, sizeof(saved_key));
+	if( !accepted )
 	{
 		SshCrypt::Zero(seed, sizeof(seed));
 		return false;
 	}
 
 	int current;
-	if( !SshDataVerify(s_dataPath, seed, lookup, key, &current, NULL) || current != 0 )
+	if( !SshDataVerify(s_dataPath, seed, lookup, key, &current, NULL) || current != match )
 	{
 		SshCrypt::Zero(seed, sizeof(seed));
 		return false;
 	}
-	bool saved = SshDataCommit(seed, lookup, key);
+	bool saved = SshDataCommit(seed, lookup, key, match == -1);
 	SshCrypt::Zero(seed, sizeof(seed));
 	return saved;
 }

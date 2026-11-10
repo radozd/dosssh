@@ -7,6 +7,12 @@ but it can also connect to other compatible SSH servers.
 You need MS-DOS 5.0+, an mTCP-compatible packet driver, a working
 mTCP configuration and a server offering the supported SSH algorithms.
 
+Supported SSH algorithms (all required on the server):
+  Key exchange: curve25519-sha256
+  Host key:     ssh-ed25519
+  Cipher:       aes128-ctr
+  MAC:          hmac-sha2-256
+
 Example:
   SET MTCPCFG=C:\MTCP.CFG
   DOSSSH.EXE 192.168.1.1 -u root
@@ -25,6 +31,9 @@ Esc cancels the setup. See README.MD for how this works and its limits.
 The random seed and trusted host keys are saved in C:\DOSSSH.DAT, or on
 the launch drive (A: or B:) if C: is unavailable. Keep the file writable.
 Verify the server fingerprint independently before typing yes.
+If a saved host key changes, DOSSSH shows the old and new fingerprints.
+Verify the new one independently before typing override to replace
+the stored key. Typing yes is not enough in this case.
 
 DOSSSH is a hobby project and has not had an independent security audit.
 WARNING: -debug writes SECRET session keys to DOSSSH.LOG. Do not share it.

@@ -153,22 +153,22 @@ bool DosChallenge(const char *username, const char *prompt, bool echo, char *res
 	return DosReadCredential(username, prompt, echo, true, response, capacity);
 }
 
-bool DosConfirmHost(const char *host, const char *fingerprint)
+static bool DosConfirmWord(const char *word)
 {
 	DosFlushKeys();
-	printf("The authenticity of host '%s' can't be established.\n", host);
-	printf("ED25519 key fingerprint is %s.\n", fingerprint);
-	printf("Verify the fingerprint independently before accepting this key.\n");
-	printf("Are you sure you want to continue connecting (yes/no)? ");
+	printf("Type '%s' to continue (anything else cancels): ", word);
 	fflush(stdout);
-	char input[8];
+	char input[12];
 	size_t used = 0;
 	for( ;; )
 	{
 		int bios = DosGetKey();
 		int ch = KeyAscii(bios);
 		if( bios == -1 || ch == 27 || ch == 3 )
+		{
+			printf("\n");
 			return false;
+		}
 		if( ch == 0 )
 			continue;
 		if( ch == 13 )
@@ -194,15 +194,42 @@ bool DosConfirmHost(const char *host, const char *fingerprint)
 		}
 	}
 	input[used] = '\0';
-	return used == 3 && (input[0] == 'y' || input[0] == 'Y') &&
-		(input[1] == 'e' || input[1] == 'E') && (input[2] == 's' || input[2] == 'S');
+	if( strlen(input) != strlen(word) )
+		return false;
+	for( size_t i = 0; i < used; i++ )
+	{
+		char a = input[i];
+		if( a >= 'A' && a <= 'Z' )
+			a = (char)(a - 'A' + 'a');
+		if( a != word[i] )
+			return false;
+	}
+	return true;
+}
+
+bool DosConfirmHost(const char *host, const char *fingerprint)
+{
+	printf("The authenticity of host '%s' can't be established.\n", host);
+	printf("ED25519 key fingerprint is %s.\n", fingerprint);
+	printf("Verify the fingerprint independently before accepting this key.\n");
+	return DosConfirmWord("yes");
+}
+
+bool DosOverrideHost(const char *host, const char *oldFingerprint, const char *newFingerprint)
+{
+	printf("\n*** WARNING: SSH HOST KEY CHANGED for %s! ***\n", host);
+	printf("This can mean a man-in-the-middle attack, not just a reinstalled router.\n");
+	printf("Saved ED25519 key:\n  %s\n", oldFingerprint);
+	printf("New ED25519 key:\n  %s\n", newFingerprint);
+	printf("Verify the NEW fingerprint independently before replacing the old key.\n");
+	return DosConfirmWord("override");
 }
 
 bool DosTrustHost(const unsigned char *hostKey, size_t keySize, const unsigned char hash[32])
 {
 	bool accepted = SshData::KnownHost(g_hostArg, g_portArg, hostKey, keySize, hash);
 	if( !accepted )
-		Log('E', "Host key untrusted, changed, or DOSSSH.DAT unavailable. Connection refused.");
+		Log('E', "Host key rejected or DOSSSH.DAT unavailable. Connection refused.");
 	return accepted;
 }
 

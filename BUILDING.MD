@@ -7,7 +7,6 @@ large memory model and requires a 386 or newer CPU, but not a 387.
 
 - Open Watcom 1.9 with its environment configured
 - the mTCP source tree in `mTCP/`
-- an mTCP-compatible packet driver on the target DOS machine
 
 The source archive includes mTCP. If you cloned the Git repository, initialize
 the submodule first:
@@ -39,13 +38,8 @@ object files out of it.
 
 ## Running
 
-Copy `DOSSSH.EXE` to the DOS machine, load the packet driver and set `MTCPCFG`
-to your mTCP runtime configuration:
-
-```bat
-SET MTCPCFG=C:\MTCP.CFG
-DOSSSH.EXE 192.168.1.1 -u root
-```
+Copy `DOSSSH.EXE` to the DOS machine. See [README.MD](README.MD) for
+network configuration, usage and limitations.
 
 `DOSSSH.CFG` in the source directory is a build-time header, not the mTCP
-runtime configuration. See [README.MD](README.MD) for usage and limitations.
+runtime configuration.

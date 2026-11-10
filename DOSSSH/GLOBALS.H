@@ -27,7 +27,7 @@
 #include "SSHNET.H"
 #include "VT100.H"
 
-#define DOSSSH_VERSION "1.2"
+#define DOSSSH_VERSION "1.3"
 #define SSHSCAN_CLIENT_ID "SSH-2.0-DOSSSH_" DOSSSH_VERSION "\r\n"
 
 #define HOSTNAME_MAX_LEN (64)
@@ -43,6 +43,7 @@ extern UiScreen g_screen;
 extern const char *g_sshReason;
 
 bool DosConfirmHost(const char *host, const char *fingerprint);
+bool DosOverrideHost(const char *host, const char *oldFingerprint, const char *newFingerprint);
 bool DosTrustHost(const unsigned char *hostKey, size_t keySize, const unsigned char hash[32]);
 bool DosPassword(const char *username, char *password, size_t capacity);
 bool DosChallenge(const char *username, const char *prompt, bool echo, char *response, size_t capacity);

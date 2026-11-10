@@ -64,7 +64,12 @@ password is always entered interactively. Press **Alt+X** to disconnect.
 
 On the first connection, DOSSSH shows the server's Ed25519 fingerprint. **Check
 it against a trusted source before typing `yes`.** If a known host key changes,
-DOSSSH refuses to connect.
+DOSSSH warns, shows both the stored and new fingerprints, and only replaces
+that host's saved key after you independently verify the new fingerprint and
+type **`override`** (not `yes`). Enter anything else to refuse the connection.
+
+For the original OpenWrt use case (changing a phone hotspot or upstream access
+point over an Ethernet connection), see [OPENWRT.MD](OPENWRT.MD).
 
 ## Random numbers on DOS
 
@@ -73,11 +78,9 @@ random-number generator. DOSSSH collects its own input before connecting.
 
 It mixes system clock timings (including the high-resolution PIT timer) with
 BIOS, ROM and video memory state. When raw disk access is available on a
-FAT12/FAT16 volume, it also mixes disk metadata, sector contents and the time
-taken to read sectors at changing positions. These reads do not write to the
-disk. The program tries up to 24 sector reads on the first run and four on
-later runs. Passive machine state and disk contents are not assumed secret or
-unpredictable.
+FAT12/FAT16 volume, it also mixes disk metadata, sector contents and read
+timings. Disk access is read-only. Passive machine state and disk contents
+are not assumed secret or unpredictable.
 
 On the first run, with no saved seed, DOSSSH also asks for live input:
 
@@ -97,9 +100,9 @@ If it is corrupt, inaccessible or cannot be updated, DOSSSH refuses to
 connect rather than proceed without a usable saved state.
 
 This collection method is a practical compromise for old hardware, not a
-certified source of cryptographic randomness. In particular, disk timings,
-audio and mouse movements may be predictable in emulators or cloned systems;
-variation checks cannot prove how much entropy was collected.
+certified source of cryptographic randomness. Disk timings and mouse
+movements may be predictable in emulators or cloned systems; variation
+checks cannot prove how much entropy was collected.
 
 ## Limitations
 
