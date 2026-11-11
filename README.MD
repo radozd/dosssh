@@ -30,7 +30,8 @@ suite.
 
 ## Features
 
-- SSHv2 terminal with VT100/xterm-style screen emulation
+- SSHv2 terminal with VT100/xterm-style screen emulation, sufficient for
+  Midnight Commander and common command-line utilities
 - password and keyboard-interactive authentication
 - Ed25519 host key verification, with remembered trusted keys
 - encrypted sessions with automatic rekeying

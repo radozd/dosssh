@@ -337,6 +337,7 @@ int main(int argc, char *argv[])
 		printf("  -u user      Login name (prompted if omitted)\n");
 		printf("  Password is always prompted without echo after host verification.\n");
 		printf("  -debug       Write SSH events, network counters and SECRET keys to DOSSSH.LOG\n");
+		printf("\n");
 		printf("First connection: verify the fingerprint, then type yes.\n");
 		printf("Changed key: verify BOTH fingerprints; type override to replace.\n");
 		printf("Trust + RNG state: C:\\DOSSSH.DAT (or program drive).\n");

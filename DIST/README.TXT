@@ -3,6 +3,8 @@ DOSSSH - SSH terminal for MS-DOS
 DOSSSH is a simple SSHv2 terminal for 386 and newer DOS computers.
 It was written to configure an OpenWrt Wi-Fi router directly from DOS,
 but it can also connect to other compatible SSH servers.
+Its terminal emulation is sufficient for Midnight Commander and
+common command-line utilities.
 
 You need MS-DOS 5.0+, an mTCP-compatible packet driver, a working
 mTCP configuration and a server offering the supported SSH algorithms.
